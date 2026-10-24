@@ -14,6 +14,12 @@ sh run.sh
 
 The launcher installs dependencies on its first run and prints the local URL
 (default `http://localhost:3000`). Stop with Ctrl+C.
+Next.js is a project-local dependency: `npm ci` installs the exact locked
+Next.js version into `node_modules/.bin/next`; do not install Next.js globally.
+If an earlier install was interrupted and `node_modules` exists without the
+Next.js executable, `sh run.sh` detects this and reinstalls the locked
+dependencies. If npm reports a network error, verify the host has access to the
+npm registry, then run `npm ci` from the project root and retry.
 
 ```sh
 PORT=3001 sh run.sh dev  # choose a different port
@@ -22,6 +28,28 @@ sh run.sh build         # production build
 sh run.sh start         # serve the production build
 npx playwright test    # phone + desktop browser smoke tests
 ```
+
+## Deployment
+
+Deploy with a Node.js hosting service (or a Node.js server/container). The
+runtime must provide Node.js 20.9+ and npm during the dependency-install/build
+steps. From the project root:
+
+```sh
+npm ci
+npm run build
+npm start
+```
+
+The Next.js production server listens on `0.0.0.0` and uses `PORT` if the
+platform supplies it (otherwise port 3000). Set the platform's start command
+to `npm start`, and build command to `npm run build`. Include the committed
+`package-lock.json` in deployments so `npm ci` installs a reproducible set of
+dependencies. For container builds, install dependencies and build inside the
+container/platform environment; do not copy a macOS `node_modules` directory
+into a Linux deployment. A static export is not configured. The optional
+browser camera preview requires HTTPS in production; the frontend itself does
+not require camera access to run.
 
 `run.sh` is the editable source for setup and launch commands; `package.json`
 contains the underlying npm scripts.
