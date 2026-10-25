@@ -261,7 +261,7 @@ can resync).
 | --- | --- | --- | --- |
 | GET | `/api/state` | | State snapshot |
 | GET | `/api/events` | | SSE stream: one `state` event now and one per change |
-| POST | `/api/session` | `{"task": str, "duration_minutes": int}` | 201 + state |
+| POST | `/api/session` | `{"task": str}` (always 25 minutes) | 201 + state |
 | POST | `/api/session/pause` / `resume` / `caught` / `end` | | State |
 | GET / PATCH | `/api/settings` | partial settings | Settings |
 | GET | `/api/history` | | Sessions, newest first |
@@ -271,6 +271,10 @@ Use `/api/events` with the browser's `EventSource` and render whatever the
 latest snapshot says; do not run a separate state machine or timer in the
 frontend. For a countdown between events, use `remaining_seconds` and
 `clock_running`.
+
+Session duration is fixed at 25 minutes, including after a failed session.
+For compatibility, `duration_minutes: 25` is accepted; any other value returns
+400. Escalation timings in Settings are independent of the session duration.
 
 State snapshot (abridged):
 

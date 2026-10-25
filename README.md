@@ -72,6 +72,7 @@ and retries.
   page applies the state the backend returns, and errors show in a toast.
 - The countdown shows the backend's `remaining_seconds`, interpolated locally
   between events; there is no frontend timer or state machine.
+- Every new session is 25 minutes; custom session durations are not supported.
 - Phases: awaiting phone, focusing, nudge, barking, escaped, paused, completed, failed,
   with the backend's `reason` shown during nudge, barking, and escaped.
 - Activity: the journal comes from `GET /api/history`; the session timeline from

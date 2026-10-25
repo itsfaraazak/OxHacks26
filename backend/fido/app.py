@@ -21,7 +21,7 @@ from typing import Any, Callable, Iterator
 
 from flask import Flask, Response, jsonify, request
 
-from .engine import EngineError, FocusEngine, InvalidInput
+from .engine import DEFAULT_DURATION_MINUTES, EngineError, FocusEngine, InvalidInput
 
 TICK_SECONDS = 0.25  # how often time-based rules (escalation, timers) run
 SSE_KEEPALIVE_SECONDS = 15.0
@@ -115,7 +115,10 @@ def create_app(engine: FocusEngine | None = None, *, start_ticker: bool = True) 
     @app.post("/api/session")
     def start_session():
         data = body()
-        hub.run(lambda e: e.start(data.get("task"), data.get("duration_minutes")))
+        duration = data.get("duration_minutes", DEFAULT_DURATION_MINUTES)
+        if type(duration) is not int or duration != DEFAULT_DURATION_MINUTES:
+            raise InvalidInput("Sessions are always 25 minutes; custom durations are not supported")
+        hub.run(lambda e: e.start(data.get("task"), DEFAULT_DURATION_MINUTES))
         return jsonify(hub.snapshot()), 201
 
     @app.post("/api/session/<action>")

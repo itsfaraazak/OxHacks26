@@ -21,7 +21,7 @@ API reference: [backend/README.md#api](../backend/README.md#api).
    - Delete or retire `src/lib/focus.ts` transitions and their tests; replace
      them with a thin typed client (`src/lib/api.ts`) mirroring the snapshot
      shape below.
-   - Commands: `POST /api/session {task, duration_minutes}`, `POST
+   - Commands: `POST /api/session {task}` (fixed 25-minute sessions), `POST
      /api/session/pause|resume|caught|end`, `PATCH /api/settings`. On HTTP 409
      the body contains `state`; apply it. On 400, show `error` in the toast.
    - The countdown: display `session.remaining_seconds`, and while

@@ -34,6 +34,8 @@ test("phone focus journey against the backend", async ({ page, request }) => {
   await expect(heading(page, "Find your focus.")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
+  await expect(page.getByText("25 minutes", { exact: true })).toBeVisible();
+  await expect(page.locator(".duration-options")).toHaveCount(0);
   await page.getByLabel("I want to focus on").fill(task);
   await page.getByRole("button", { name: "Let’s focus" }).click();
   await expect(heading(page, "You do your thing.")).toBeVisible();

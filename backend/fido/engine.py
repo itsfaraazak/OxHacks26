@@ -58,6 +58,7 @@ MAX_SOURCES = 8
 SOURCE_NAME = re.compile(r"[A-Za-z0-9_-]{1,32}")
 MAX_SESSION_EVENTS = 50
 MAX_HISTORY = 100
+DEFAULT_DURATION_MINUTES = 25
 
 
 class EngineError(ValueError):
