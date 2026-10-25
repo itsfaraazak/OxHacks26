@@ -57,17 +57,17 @@ void tickRange() {
   bool timeout = waiting && now - pingMs >= 35;
   if (timeout) waiting = false;
   portEXIT_CRITICAL(&mux);
-  if (timeout) valid = false;
+  // Retain a valid echo through isolated dropouts; expiry below still stops motion.
   if (done) {
-    cm = pulse * 0.0343f / 2;
-    valid = cm >= 2 && cm <= 400;
-    readingMs = now;
+    float measured = pulse * 0.0343f / 2;
+    if (measured >= 2 && measured <= 400) {
+      cm = measured;
+      valid = true;
+      readingMs = now;
+    }
   }
   if (now - pingMs < 80) return;
   pingMs = now;
-  // A new measurement invalidates the previous one on timeout rather than
-  // treating "no echo" as clear space.
-  valid = done ? valid : (now - readingMs < 150 && valid);
   portENTER_CRITICAL(&mux);
   waiting = digitalRead(kEcho) == LOW;
   risen = false;
@@ -78,9 +78,40 @@ void tickRange() {
 }
 bool rangeFresh() { return valid && millis() - readingMs < 250; }
 float rangeCm() { return cm; }
+uint32_t rangeSampleMs() { return readingMs; }
 
 void centreServo() {
   ledcAttachPin(kServo, 4);
   ledcWrite(4, 1500UL * 65535UL / 20000UL);
+}
+
+void tickServo(fido::Mode mode, bool enabled) {
+  static uint32_t lastTick = 0;
+  static int position = 90;
+  uint32_t now = millis();
+  if (now - lastTick < 20) return;
+  lastTick = now;
+  int amplitude = 0, period = 1400;
+  if (enabled) {
+    switch (mode) {
+      case fido::Mode::BeckonDock: amplitude = 20; period = 1600; break;
+      case fido::Mode::Watch:
+        amplitude = now % 12000 < 1800 ? 10 : 0;
+        break;
+      case fido::Mode::Nudge: amplitude = 25; period = 900; break;
+      case fido::Mode::Bark: amplitude = 25; period = 700; break;
+      case fido::Mode::Run: amplitude = 20; period = 1000; break;
+      case fido::Mode::Celebrate: amplitude = 40; period = 900; break;
+      default: break;
+    }
+  }
+  int phase = now % period;
+  int triangle = phase < period / 2 ? phase * 200 / period - 50 :
+                                                150 - phase * 200 / period;
+  int target = 90 + triangle * amplitude / 50;
+  // Two degrees per 20ms: bounded motion without delays or random jumps.
+  position += constrain(target - position, -2, 2);
+  unsigned long pulse = map(position, 0, 180, 1000, 2000);
+  ledcWrite(4, pulse * 65535UL / 20000UL);
 }
 }

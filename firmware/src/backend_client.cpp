@@ -135,7 +135,7 @@ bool BackendClient::post(const char* event) {
           uint32_t now = millis();
           safety_.onReply(now, cmd.mode, cmd.motion_enabled);
           lastOkMs_ = now;
-          if (errorStreak_ >= kErrorStreakLimit) speechGate.resync();  // outage: do not replay old cues
+          if (errorStreak_ >= kSpeechResyncErrors) speechGate.resync();  // outage: do not replay old cues
           errorStreak_ = 0;
           if (speechGate.shouldPlay(cmd.speech)) audio::request(cmd.speech.clip);
           portENTER_CRITICAL(&mux_);

@@ -65,14 +65,15 @@
 #endif
 
 static_assert(ENABLE_MOTION == 0 || ENABLE_MOTION == 1, "ENABLE_MOTION must be 0 or 1");
-static_assert(MAX_SPEED_PERCENT >= 1 && MAX_SPEED_PERCENT <= 60, "MAX_SPEED_PERCENT must be 1..60 (slow on purpose)");
+static_assert(MAX_SPEED_PERCENT >= 1 && MAX_SPEED_PERCENT <= 100, "MAX_SPEED_PERCENT must be 1..100");
 static_assert(WIGGLE_SPEED_PERCENT >= 1 && WIGGLE_SPEED_PERCENT <= MAX_SPEED_PERCENT,
               "WIGGLE_SPEED_PERCENT must be 1..MAX_SPEED_PERCENT");
 static_assert(MAX_ESCAPE_MS >= 500 && MAX_ESCAPE_MS <= 600000, "MAX_ESCAPE_MS must be 500..600000");
 
 // Timing that is part of the safety story, kept in one place.
 constexpr uint32_t kHeartbeatPeriodMs = 1000;  // backend poll interval
-constexpr uint32_t kWatchdogMs = 3000;         // no good reply for this long => motors stop
-constexpr uint8_t kErrorStreakLimit = 2;       // consecutive failed requests => motors stop
+constexpr uint32_t kWatchdogMs = 5000;         // elapsed since last valid reply, not request count
+constexpr uint8_t kErrorStreakLimit = 0;       // disabled: motor expiry uses the watchdog only
+constexpr uint8_t kSpeechResyncErrors = 2;     // audio resync is independent of motor expiry
 constexpr uint32_t kHttpConnectTimeoutMs = 800;
 constexpr uint32_t kHttpTimeoutMs = 1200;

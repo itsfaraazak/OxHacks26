@@ -32,10 +32,14 @@
 // Hard local cap even if the backend keeps saying run; matches the 10-minute stop timeout.
 #define MAX_ESCAPE_MS 600000
 
-// Slow speed cap, percent of full PWM. The build refuses values above 60.
+// Default simulation/bench caps; the explicit motion target overrides these.
+#ifndef MAX_SPEED_PERCENT
 #define MAX_SPEED_PERCENT 35
+#endif
 // Cap for the in-place `nudge` wiggle (never above MAX_SPEED_PERCENT).
+#ifndef WIGGLE_SPEED_PERCENT
 #define WIGGLE_SPEED_PERCENT 25
+#endif
 
 // ---- MX1508: two PWM-capable inputs per wheel; no separate enable pins -------------------
 #define MOTOR_LEFT_IN1_PIN 25

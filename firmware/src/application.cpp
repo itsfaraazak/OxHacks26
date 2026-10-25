@@ -116,10 +116,15 @@ void fidoLoop() {
     centreRequested = true;
     Serial.println("[servo] centre signal active on GPIO12");
   }
+  if (centreRequested)
+    hardware::tickServo(cmd.mode, valid && !caughtPending && !safety.estop() &&
+                        millis() - backend.lastOkMs() < kWatchdogMs &&
+                        WiFi.softAPgetStationNum() == 0);
   if (caughtPending || WiFi.softAPgetStationNum() > 0) {
     motors.stop();
   } else {
-    controller.update(now, cmd.task, hardware::rangeFresh(), hardware::rangeCm());
+    controller.update(now, cmd.task, hardware::rangeFresh(), hardware::rangeCm(),
+                      hardware::rangeSampleMs());
   }
   audio::tick(now);
 

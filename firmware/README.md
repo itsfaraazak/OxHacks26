@@ -26,7 +26,9 @@ its voltage divider. OLED I2C levels and button pull-up must be 3.3V-safe.
 
 **GPIO12 workaround:** disconnect servo signal for reset/upload, reconnect after
 boot. Centre pulses start after 10 seconds (or later if Bluetooth startup is
-slow). It stays at 90°/1500us; no random tail behavior is defined. Keep the horn
+slow). Mode-specific servo wags then slew at up to 2° per 20ms within 50–130°.
+Idle/rest settle at centre; docking/focus wag gently, warning/celebration more.
+Catch, stale backend, setup and e-stop settle the servo. Keep the horn
 detached initially. This is not a reliable unattended boot design.
 
 ## Build and flash
@@ -71,24 +73,29 @@ Connecting a setup client inhibits motor movement; disconnect before motion test
 
 | Backend mode | Hardware |
 |---|---|
-| sleep, rest, watch, bark, celebrate | Stopped; OLED state/task |
+| sleep, rest, watch, celebrate | Wheels stopped; large OLED state/task and servo gestures |
 | beckon_dock | OLED docking prompt; button sends `docked` |
 | nudge | Once: forward 300ms, pause 50ms, reverse 300ms |
-| run | Forward; calibrated right turn below 20cm, forward again at 25cm |
+| bark | Once: 150ms on-spot left, 50ms pause, 150ms right |
+| run | Forward; persistent calibrated right turn below 35cm |
 
-Fresh valid range is required for movement. Missing, invalid or stale readings
-stop motion; no echo is not clear space. Rear obstacles are not sensed.
+Fresh valid range is required for movement. A last good reading is retained
+through isolated misses for at most 250ms; sustained missing/invalid readings
+stop motion. No echo is not clear space. Three distinct valid readings at
+least 45cm are required to finish a turn. A turn exceeding 5 seconds latches
+stopped until run ends; catch/end the session to recover. Rear obstacles are not sensed.
 Catch button stops locally immediately and reports `caught`, holding stopped
 until the backend leaves run. Other presses only log. Failed device events
 retry from the queue. No automatic phone-removal/NFC detection.
 The backend clears the docking acknowledgement on every new session, so each
 start needs a fresh press unless "Start without docking" is enabled.
 
-Safety gates retain backend permission, 3-second watchdog, two HTTP errors,
+Safety gates retain backend permission, a 5-second last-valid-reply watchdog,
 serial e-stop, compile-time enable and unknown/still modes. Local escape cap is
 10 minutes even if server remains in run. All obstacle turns pass the same gate.
-Direction reversals have an all-off interval. Run/nudge speed caps remain
-35%/25%, maximum 60%: not full-power component-test settings.
+Direction reversals have an all-off interval. The explicit motion target uses
+100% PWM for every nonzero motor command, per the supervised hardware-test request.
+Default non-driving builds retain 35%/25% caps.
 
 Backend requests run on core 0; control and Bluetooth app run on core 1.
 Echo uses interrupts, not blocking pulseIn. OLED refreshes on mode changes.
@@ -110,9 +117,42 @@ events, `l` list clips, `p` + name + Enter play clip, `h` help.
 3. Verify boot workaround, setup persistence, OLED and real button events.
 4. Pair speaker, play all six clips; heartbeats must continue during audio.
 5. Verify simulated obstacle/stale sensor stop, catch stop, mute and fallback.
-6. Explicitly enable motion in local hardware override, repeat wheels-lifted
-   tests with physical cutoff ready, including backend/sensor loss and e-stop.
+6. Use the explicit motion target below, repeat wheels-lifted tests with
+   physical cutoff ready, including backend/sensor loss and e-stop.
 7. Floor testing only away from edges, people/animals and loose wiring.
+
+## Explicit actuation build
+
+Default `esp32dev` builds remain non-driving. Build the opt-in target with:
+
+```sh
+pio run -d firmware -e esp32-motion
+```
+
+Only when ready to flash, disconnect GPIO12's servo signal, lift wheels,
+detach servo linkage and keep a physical power cutoff within reach:
+
+```sh
+pio run -d firmware -e esp32-motion -t upload
+```
+
+Boot must say `motion COMPILED IN (ENABLE_MOTION=1)`. Reconnect the servo
+signal only after boot. Disconnect phones from Fido-Setup, since setup
+clients inhibit movement. App movement permission must also be on.
+During run, the real button must stop the wheels locally; test this first.
+Serial `x` latches an emergency stop, `r` releases it. Releasing a stop or
+restoring a sensor/network can resume motion if the backend still requests run.
+No fresh range or a 5-second stale backend means stopped. HTTP failure count
+alone does not stop movement; invalid replies do not renew the 5-second lease.
+Explicit backend stop and local physical catch/e-stop still stop immediately.
+Run, nudge and warning-shake use 100% PWM, matching the full-power component test.
+At these duties a 300ms nudge travels farther; verify wheels lifted first.
+If these duties do not start the motors reliably, stop and reassess before
+changing speed; do not treat a stalled motor as a working motion test.
+
+To return to non-driving firmware, explicitly upload `-e esp32dev`.
+The two targets share the same partition layout and audio image; clips
+do not need re-uploading just to switch motion on/off.
 
 Host tests do not establish wiring, braking distance, obstacle reliability,
 Bluetooth quality or unattended boot safety. No drive-off-table routine exists.

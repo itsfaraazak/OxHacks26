@@ -6,7 +6,7 @@
 //   * a successful backend reply has arrived, and the latest one is younger than watchdog_ms
 //   * the HTTP error streak is below error_streak_limit
 //   * the latest reply says motion_enabled == true
-//   * the mode is `run` (full slow-speed cap) or `nudge` (tiny wiggle cap), and for `run`
+//   * the mode is run, nudge or bark (bounded planner pulses), and for `run`
 //     it has lasted less than max_escape_ms
 //   * motion was compiled in (ENABLE_MOTION=1). Evaluated last so that, with motion compiled
 //     out, StopReason::NotCompiled means "every other rule would have allowed movement".
@@ -20,9 +20,9 @@ namespace fido {
 
 struct SafetyConfig {
   bool motion_compiled = false;        // ENABLE_MOTION; false means gate() always returns 0
-  uint32_t watchdog_ms = 3000;         // no successful reply for this long => stop
+  uint32_t watchdog_ms = 5000;         // no successful reply for this long => stop
   uint32_t max_escape_ms = 8000;       // `run` is cut off this long after it started
-  uint8_t error_streak_limit = 2;      // this many failed requests in a row => stop
+  uint8_t error_streak_limit = 0;      // 0 disables count-based stopping; watchdog still applies
   float max_speed = 0.35f;             // slow speed cap in `run`, fraction of full PWM
   float wiggle_speed = 0.25f;          // cap in `nudge` (in-place wiggle), <= max_speed
 };
@@ -41,7 +41,7 @@ enum class StopReason : uint8_t {
   Watchdog,  // last successful reply too old
   HttpErrors,
   MotionDisabled,
-  ModeStill,       // mode is not run/nudge
+  ModeStill,       // mode is not run/nudge/bark
   EscapeTimeout,   // run lasted max_escape_ms
   NotCompiled,     // ENABLE_MOTION=0; output is zero (see above)
 };

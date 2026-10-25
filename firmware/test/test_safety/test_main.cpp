@@ -125,7 +125,7 @@ void test_http_error_streak_stops_before_watchdog() {
 
 void test_non_run_modes_do_not_drive() {
   const Mode still[] = {Mode::Unknown, Mode::Sleep, Mode::BeckonDock, Mode::Watch,
-                        Mode::Bark,    Mode::Rest,  Mode::Celebrate};
+                        Mode::Rest,  Mode::Celebrate};
   for (Mode m : still) {
     MotorSafety s(cfg());
     s.onReply(0, m, true);
@@ -196,18 +196,23 @@ void test_nudge_wiggle_is_tiny_and_balanced() {
   TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, net_right);
   TEST_ASSERT_TRUE(stopped(planMotion(Mode::Nudge, 1500))); // Not repeated.
   TEST_ASSERT_TRUE(stopped(planMotion(Mode::Watch, 0)));
-  TEST_ASSERT_TRUE(stopped(planMotion(Mode::Bark, 0)));
+  TEST_ASSERT_TRUE(stopped(planMotion(Mode::Bark, 350)));
 }
 
 void test_obstacle_turn_hysteresis_and_missing_sensor() {
   ObstacleGate o;
   TEST_ASSERT_TRUE(stopped(o.apply(Mode::Run, kFull, false, 100)));
   TEST_ASSERT_TRUE(stopped(o.apply(Mode::Run, kFull, true, 0)));
-  MotorCommand m = o.apply(Mode::Run, kFull, true, 19);
+  TEST_ASSERT_EQUAL_FLOAT(1, o.apply(Mode::Run, kFull, true, 35, 0, 0).left);
+  MotorCommand m = o.apply(Mode::Run, kFull, true, 34, 1, 1);
   TEST_ASSERT_EQUAL_FLOAT(-1, m.left);
   TEST_ASSERT_EQUAL_FLOAT(1, m.right);
-  TEST_ASSERT_EQUAL_FLOAT(-1, o.apply(Mode::Run, kFull, true, 23).left);
-  TEST_ASSERT_EQUAL_FLOAT(1, o.apply(Mode::Run, kFull, true, 25).left);
+  TEST_ASSERT_EQUAL_FLOAT(-1, o.apply(Mode::Run, kFull, true, 23, 2, 2).left);
+  TEST_ASSERT_EQUAL_FLOAT(-1, o.apply(Mode::Run, kFull, true, 45, 3, 3).left);
+  // Re-reading one sample cannot count as three confirmations.
+  TEST_ASSERT_EQUAL_FLOAT(-1, o.apply(Mode::Run, kFull, true, 45, 3, 4).left);
+  TEST_ASSERT_EQUAL_FLOAT(-1, o.apply(Mode::Run, kFull, true, 45, 4, 5).left);
+  TEST_ASSERT_EQUAL_FLOAT(1, o.apply(Mode::Run, kFull, true, 45, 5, 6).left);
   TEST_ASSERT_TRUE(stopped(o.apply(Mode::Nudge, kFull, true, 19)));
   TEST_ASSERT_EQUAL_FLOAT(-1, o.apply(Mode::Nudge, {-1, -1}, true, 19).left);
 }
@@ -219,6 +224,47 @@ void test_obstacle_cannot_bypass_backend_stop() {
   TEST_ASSERT_TRUE(stopped(s.gate(10, o.apply(Mode::Run, kFull, true, 10))));
   s.onReply(20, Mode::Run, true);
   TEST_ASSERT_TRUE(stopped(s.gate(3020, o.apply(Mode::Run, kFull, true, 10))));
+}
+
+void test_turn_timeout_latches_until_leaving_run() {
+  ObstacleGate o;
+  TEST_ASSERT_EQUAL_FLOAT(-1, o.apply(Mode::Run, kFull, true, 10, 100, 100).left);
+  TEST_ASSERT_EQUAL_FLOAT(-1, o.apply(Mode::Run, kFull, true, 10, 5000, 5000).left);
+  TEST_ASSERT_TRUE(stopped(o.apply(Mode::Run, kFull, true, 10, 5100, 5100)));
+  TEST_ASSERT_TRUE(stopped(o.apply(Mode::Run, kFull, true, 100, 5200, 5200)));
+  o.apply(Mode::Watch, {}, false, 0, 0, 5300);
+  TEST_ASSERT_EQUAL_FLOAT(1, o.apply(Mode::Run, kFull, true, 100, 5400, 5400).left);
+}
+
+void test_bark_shake_is_once_and_gated() {
+  SafetyConfig c = cfg();
+  c.max_speed = c.wiggle_speed = 1;
+  MotorSafety s(c);
+  s.onReply(0, Mode::Bark, true);
+  TEST_ASSERT_EQUAL_FLOAT(1, s.gate(100, planMotion(Mode::Bark, 100)).left);
+  TEST_ASSERT_EQUAL_FLOAT(-1, s.gate(250, planMotion(Mode::Bark, 250)).left);
+  TEST_ASSERT_TRUE(stopped(s.gate(180, planMotion(Mode::Bark, 180))));
+  TEST_ASSERT_TRUE(stopped(s.gate(500, planMotion(Mode::Bark, 500))));
+  s.setEstop(true);
+  TEST_ASSERT_TRUE(stopped(s.gate(250, planMotion(Mode::Bark, 250))));
+}
+
+void test_time_based_http_grace_and_physical_stop() {
+  SafetyConfig c;
+  c.motion_compiled = true;
+  c.max_speed = 1;
+  MotorSafety s(c);
+  s.onReply(1000, Mode::Run, true);
+  for (uint32_t t = 1100; t < 6000; t += 100) {
+    s.onHttpError(t);
+    TEST_ASSERT_FALSE(stopped(s.gate(t, kFull)));
+  }
+  TEST_ASSERT_TRUE(stopped(s.gate(6000, kFull)));
+  TEST_ASSERT_EQUAL(StopReason::Watchdog, reasonAt(s, 6000));
+  s.onReply(6100, Mode::Run, true);
+  TEST_ASSERT_FALSE(stopped(s.gate(6100, kFull)));
+  s.setEstop(true);
+  TEST_ASSERT_TRUE(stopped(s.gate(6101, kFull)));
 }
 
 int main() {
@@ -241,5 +287,8 @@ int main() {
   RUN_TEST(test_nudge_wiggle_is_tiny_and_balanced);
   RUN_TEST(test_obstacle_turn_hysteresis_and_missing_sensor);
   RUN_TEST(test_obstacle_cannot_bypass_backend_stop);
+  RUN_TEST(test_turn_timeout_latches_until_leaving_run);
+  RUN_TEST(test_bark_shake_is_once_and_gated);
+  RUN_TEST(test_time_based_http_grace_and_physical_stop);
   return UNITY_END();
 }

@@ -49,11 +49,11 @@ MotorCommand MotorSafety::gate(uint32_t now_ms, MotorCommand intent, StopReason*
     reason = StopReason::NoReply;
   } else if (now_ms - last_ok_ms_ >= cfg_.watchdog_ms) {
     reason = StopReason::Watchdog;
-  } else if (error_streak_ >= cfg_.error_streak_limit) {
+  } else if (cfg_.error_streak_limit > 0 && error_streak_ >= cfg_.error_streak_limit) {
     reason = StopReason::HttpErrors;
   } else if (!motion_enabled_) {
     reason = StopReason::MotionDisabled;
-  } else if (mode_ != Mode::Run && mode_ != Mode::Nudge) {
+  } else if (mode_ != Mode::Run && mode_ != Mode::Nudge && mode_ != Mode::Bark) {
     reason = StopReason::ModeStill;
   } else if (mode_ == Mode::Run && now_ms - mode_since_ >= cfg_.max_escape_ms) {
     reason = StopReason::EscapeTimeout;

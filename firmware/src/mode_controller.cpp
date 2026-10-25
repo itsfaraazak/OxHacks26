@@ -5,20 +5,20 @@
 void ModeController::showMode(fido::Mode mode, const char* task) {
   using fido::Mode;
   switch (mode) {
-    case Mode::Sleep: display_.show("zzz", "No session"); break;
-    case Mode::BeckonDock: display_.show("Put your phone on me!", task); break;
-    case Mode::Watch: display_.show("Watching you", task); break;
-    case Mode::Nudge: display_.show("Hey... focus?", task); break;
-    case Mode::Bark: display_.show("WOOF!", "Last warning"); break;
-    case Mode::Run: display_.show("Catch me!", ""); break;
-    case Mode::Rest: display_.show("Resting", "Paused"); break;
-    case Mode::Celebrate: display_.show("Good job!", ""); break;
+    case Mode::Sleep: display_.show("SLEEPING", "No session"); break;
+    case Mode::BeckonDock: display_.show("DOCK\nPHONE", task); break;
+    case Mode::Watch: display_.show("STAY\nFOCUSED", task); break;
+    case Mode::Nudge: display_.show("HEY!\nFOCUS", task); break;
+    case Mode::Bark: display_.show("LAST\nWARNING", "WOOF!"); break;
+    case Mode::Run: display_.show("CATCH ME!", "Press button to stop"); break;
+    case Mode::Rest: display_.show("RESTING", "Stopped / paused"); break;
+    case Mode::Celebrate: display_.show("GOOD JOB!", "Session complete"); break;
     case Mode::Unknown: display_.show("...", "Waiting for backend"); break;
   }
 }
 
-void ModeController::update(uint32_t now_ms, const char* task, bool rangeFresh, float rangeCm) {
-  SharedSafety::Tick t = safety_.tick(now_ms, rangeFresh, rangeCm);
+void ModeController::update(uint32_t now_ms, const char* task, bool rangeFresh, float rangeCm, uint32_t sampleMs) {
+  SharedSafety::Tick t = safety_.tick(now_ms, rangeFresh, rangeCm, sampleMs);
   why_ = t.why;
 
   if (!haveShown_ || t.mode != shown_) {
