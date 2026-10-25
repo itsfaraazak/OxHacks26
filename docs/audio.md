@@ -113,11 +113,13 @@ auto-play; they play only after the user taps "Hear Fido on this phone".
 There are separate PlatformIO projects. `esp_firmware/` on main retains its
 Wi-Fi setup webpage and saved configuration; `esp_component_test/` retains
 its standalone component test. Neither is modified by this audio addition.
-The audio-capable application is `firmware/`, configured through its gitignored
-`include/fido_config.h`. Flashing it replaces the running ESP32 application;
-it does not include the other project's setup webpage. Do not flash it over
-a teammate's working setup without coordinating. Motion is compiled out by
-default, and its motor pins are placeholders.
+The integrated audio-capable application is `firmware/`, with `src/main.ino`
+as its entry point. It now includes a saved-settings setup webpage, the tested
+MX1508 pinout, OLED, button, ultrasonic sensing and a centred servo signal.
+Optional local hardware overrides use `include/fido_config.h`; credentials
+are supplied through Fido-Setup and stored on the board, not source files.
+Flashing replaces the running ESP32 application. Motion is compiled out by
+default; integrated hardware and Bluetooth still require bench verification.
 
 The ESP32 stores the clips in flash (the DevKit V1 has 4 MB shared with the
 program; these six clips are a few seconds and fit easily) and plays the clip named in `speech.clip` over

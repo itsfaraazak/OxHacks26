@@ -9,6 +9,7 @@
 #include "battery.h"
 #include "settings.h"
 #include "speech_gate.h"
+#include "provisioning.h"
 
 namespace {
 fido::SpeechGate speechGate;
@@ -16,14 +17,15 @@ fido::SpeechGate speechGate;
 
 void BackendClient::begin() {
   queue_ = xQueueCreate(8, sizeof(NfcEvent));
-  WiFi.mode(WIFI_STA);
+  // provisioning::begin() already enabled AP+STA; don't remove the setup AP.
   WiFi.setAutoReconnect(true);
   // Modem power save lets the Bluetooth controller have air time between Wi-Fi beacons; with it
   // off Wi-Fi hogs the radio and A2DP audio stutters. Costs up to one DTIM interval (~100 ms) of
   // latency per request, far inside the 3 s watchdog.
   WiFi.setSleep(WIFI_POWER_SAVE ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.printf("[wifi] connecting to \"%s\"\n", WIFI_SSID);
+  if (!provisioning::ssid().isEmpty())
+    WiFi.begin(provisioning::ssid().c_str(), provisioning::password().c_str());
+  Serial.printf("[wifi] connecting to \"%s\"\n", provisioning::ssid().c_str());
   xTaskCreatePinnedToCore(taskEntry, "backend", 8192, this, 2, nullptr, 0);
 }
 
@@ -55,11 +57,13 @@ void BackendClient::run() {
     uint32_t now = millis();
     wifiMaintain(now);
 
-    // NFC events go out immediately, on their own request.
+    // Device events replace a heartbeat; failed events remain queued for retry.
     NfcEvent e;
-    while (xQueueReceive(static_cast<QueueHandle_t>(queue_), &e, 0) == pdTRUE) {
+    if (xQueuePeek(static_cast<QueueHandle_t>(queue_), &e, 0) == pdTRUE &&
+        static_cast<int32_t>(now - nextBeat) >= 0) {
       Serial.printf("[backend] event %s\n", nfcEventName(e));
-      post(nfcEventName(e));
+      if (post(nfcEventName(e))) xQueueReceive(static_cast<QueueHandle_t>(queue_), &e, 0);
+      nextBeat = millis() + kHeartbeatPeriodMs;
     }
 
     now = millis();
@@ -83,7 +87,8 @@ void BackendClient::wifiMaintain(uint32_t now) {
   if (backoff.due(now)) {
     Serial.println("[wifi] not connected, reconnecting");
     WiFi.disconnect();
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    if (!provisioning::ssid().isEmpty())
+      WiFi.begin(provisioning::ssid().c_str(), provisioning::password().c_str());
     backoff.failed(now);
   }
 }
@@ -117,10 +122,11 @@ bool BackendClient::post(const char* event) {
     http.setConnectTimeout(kHttpConnectTimeoutMs);
     http.setTimeout(kHttpTimeoutMs);
     http.setReuse(false);
-    String url = String(BACKEND_BASE_URL) + "/api/robot/events";
+    String url = provisioning::backendUrl() + "/api/robot/events";
     if (http.begin(client, url)) {
       http.addHeader("Content-Type", "application/json");
-      if (DEVICE_TOKEN[0] != '\0') http.addHeader("Authorization", String("Bearer ") + DEVICE_TOKEN);
+      if (!provisioning::token().isEmpty())
+        http.addHeader("Authorization", String("Bearer ") + provisioning::token());
       code = http.POST(reinterpret_cast<uint8_t*>(body), n);
       if (code == 200 && http.getSize() < 4096) {
         String payload = http.getString();

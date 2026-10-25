@@ -1,4 +1,4 @@
-// Pulls in config.h (yours) or config.example.h (placeholders), fills in optional defaults,
+// Pulls in local hardware overrides or the checked-in defaults, fills in optional defaults,
 // and refuses to build with unsafe values.
 #pragma once
 
@@ -8,7 +8,6 @@
 #include "fido_config.h"
 #else
 #include "config.example.h"
-#warning "include/fido_config.h not found: using config.example.h placeholders. Copy it to fido_config.h."
 #endif
 
 #include <stdint.h>
@@ -25,7 +24,7 @@
 #define ENABLE_MOTION 0
 #endif
 #ifndef MAX_ESCAPE_MS
-#define MAX_ESCAPE_MS 8000
+#define MAX_ESCAPE_MS 600000
 #endif
 #ifndef MAX_SPEED_PERCENT
 #define MAX_SPEED_PERCENT 35
@@ -69,7 +68,7 @@ static_assert(ENABLE_MOTION == 0 || ENABLE_MOTION == 1, "ENABLE_MOTION must be 0
 static_assert(MAX_SPEED_PERCENT >= 1 && MAX_SPEED_PERCENT <= 60, "MAX_SPEED_PERCENT must be 1..60 (slow on purpose)");
 static_assert(WIGGLE_SPEED_PERCENT >= 1 && WIGGLE_SPEED_PERCENT <= MAX_SPEED_PERCENT,
               "WIGGLE_SPEED_PERCENT must be 1..MAX_SPEED_PERCENT");
-static_assert(MAX_ESCAPE_MS >= 500 && MAX_ESCAPE_MS <= 60000, "MAX_ESCAPE_MS must be 500..60000");
+static_assert(MAX_ESCAPE_MS >= 500 && MAX_ESCAPE_MS <= 600000, "MAX_ESCAPE_MS must be 500..600000");
 
 // Timing that is part of the safety story, kept in one place.
 constexpr uint32_t kHeartbeatPeriodMs = 1000;  // backend poll interval

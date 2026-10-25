@@ -1,6 +1,7 @@
 // Face of the robot. The OLED model is not confirmed, so the firmware depends on this interface;
 // SerialDisplay just logs. Replace it with an SSD1306/SH1106 implementation when the part is known.
 #pragma once
+#include <Adafruit_SSD1306.h>
 
 class Display {
  public:
@@ -14,4 +15,13 @@ class SerialDisplay : public Display {
  public:
   void begin() override {}
   void show(const char* line1, const char* line2) override;
+};
+
+class OledDisplay : public Display {
+ public:
+  void begin() override;
+  void show(const char* line1, const char* line2) override;
+ private:
+  Adafruit_SSD1306 oled_{128, 64, &Wire, -1};
+  bool ready_ = false;
 };

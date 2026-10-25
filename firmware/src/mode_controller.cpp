@@ -17,8 +17,8 @@ void ModeController::showMode(fido::Mode mode, const char* task) {
   }
 }
 
-void ModeController::update(uint32_t now_ms, const char* task) {
-  SharedSafety::Tick t = safety_.tick(now_ms);
+void ModeController::update(uint32_t now_ms, const char* task, bool rangeFresh, float rangeCm) {
+  SharedSafety::Tick t = safety_.tick(now_ms, rangeFresh, rangeCm);
   why_ = t.why;
 
   if (!haveShown_ || t.mode != shown_) {

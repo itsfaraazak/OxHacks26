@@ -96,16 +96,18 @@ def test_start_cue_when_phone_is_docked(engine: FocusEngine) -> None:
     assert engine.snapshot()["speech"]["seq"] == 2
 
 
-def test_already_docked_phone_goes_straight_to_start(engine: FocusEngine) -> None:
+def test_old_dock_acknowledgement_still_emits_new_dock_cue(engine: FocusEngine) -> None:
     engine.robot_event("docked")
     engine.start("Write", 25)
+    assert cue(engine) == "dock"
+    engine.robot_event("docked")
     assert cue(engine) == "start"
-    assert engine.snapshot()["speech"]["seq"] == 1  # no pointless "dock" line first
+    assert engine.snapshot()["speech"]["seq"] == 2
 
 
 def test_escalation_speaks_nudge_bark_run(engine: FocusEngine, clock: Clock) -> None:
-    engine.robot_event("docked")
     engine.start("Write", 25)
+    engine.robot_event("docked")
     heard = cues_heard(engine, clock, lambda: report(engine, clock, NOT_FOCUSED, 12))
     assert heard == ["nudge", "bark", "run"]
 
@@ -115,8 +117,8 @@ def test_seq_only_ever_increases_and_a_cues_clips_rotate(engine: FocusEngine, cl
 
     monkeypatch.setitem(PLAYLIST, "nudge", ["nudge-1", "woof-1", "bark-4"])
     monkeypatch.setattr(engine_module, "PLAYLIST", PLAYLIST)
-    engine.robot_event("docked")
     engine.start("Write", 25)
+    engine.robot_event("docked")
     seen, seqs = [], []
     for _ in range(4):
         report(engine, clock, NOT_FOCUSED, 1)
@@ -134,8 +136,8 @@ def test_a_cue_with_no_clips_is_silent(engine: FocusEngine, clock: Clock, monkey
 
     monkeypatch.setitem(PLAYLIST, "bark", [])
     monkeypatch.setattr(engine_module, "PLAYLIST", PLAYLIST)
-    engine.robot_event("docked")
     engine.start("Write", 25)
+    engine.robot_event("docked")
     report(engine, clock, NOT_FOCUSED, 1)
     assert cue(engine) == "nudge"
     version = engine.version
@@ -145,8 +147,8 @@ def test_a_cue_with_no_clips_is_silent(engine: FocusEngine, clock: Clock, monkey
 
 
 def test_flickering_camera_does_not_make_fido_chatter(engine: FocusEngine, clock: Clock) -> None:
-    engine.robot_event("docked")
     engine.start("Write", 25)
+    engine.robot_event("docked")
     seq_before = engine.snapshot()["speech"]["seq"]
     for _ in range(5):  # distracted for 1 s, refocused for 1 s, repeatedly
         report(engine, clock, NOT_FOCUSED, 1)
@@ -157,8 +159,8 @@ def test_flickering_camera_does_not_make_fido_chatter(engine: FocusEngine, clock
 
 
 def test_praise_only_after_a_spoken_nudge(engine: FocusEngine, clock: Clock) -> None:
-    engine.robot_event("docked")
     engine.start("Write", 25)
+    engine.robot_event("docked")
     report(engine, clock, NOT_FOCUSED, 1)
     assert cue(engine) == "nudge"
     report(engine, clock, FOCUSED, 1)
@@ -166,8 +168,8 @@ def test_praise_only_after_a_spoken_nudge(engine: FocusEngine, clock: Clock) -> 
 
 
 def test_angry_line_repeats_while_escaped_then_caught(engine: FocusEngine, clock: Clock) -> None:
-    engine.robot_event("docked")
     engine.start("Write", 60)
+    engine.robot_event("docked")
     report(engine, clock, NOT_FOCUSED, 12)
     assert cue(engine) == "run"
     first = engine.snapshot()["speech"]
@@ -183,8 +185,8 @@ def test_angry_line_repeats_while_escaped_then_caught(engine: FocusEngine, clock
 
 
 def test_caught_from_the_app_also_speaks(engine: FocusEngine, clock: Clock) -> None:
-    engine.robot_event("docked")
     engine.start("Write", 60)
+    engine.robot_event("docked")
     report(engine, clock, NOT_FOCUSED, 12)
     engine.apply("caught")
     assert cue(engine) == "caught"
@@ -192,16 +194,16 @@ def test_caught_from_the_app_also_speaks(engine: FocusEngine, clock: Clock) -> N
 
 def test_escape_timeout_and_completion_speak(clock: Clock) -> None:
     engine = FocusEngine(Settings(bark_after_seconds=5, escape_after_seconds=5), clock)
-    engine.robot_event("docked")
     engine.start("Write", 60)
+    engine.robot_event("docked")
     report(engine, clock, NOT_FOCUSED, 12)
     clock.tick(600)
     engine.advance()
     assert cue(engine) == "timeout"
 
     short = FocusEngine(Settings(), clock)
-    short.robot_event("docked")
     short.start("Write", 1)
+    short.robot_event("docked")
     clock.tick(60)
     short.advance()
     assert cue(short) == "done"
@@ -209,11 +211,11 @@ def test_escape_timeout_and_completion_speak(clock: Clock) -> None:
 
 def test_muted_voice_still_emits_caption_events(engine: FocusEngine, clock: Clock) -> None:
     engine.update_settings({"voice_enabled": False})
-    engine.robot_event("docked")
     engine.start("Write", 25)
+    engine.robot_event("docked")
     report(engine, clock, NOT_FOCUSED, 12)
     assert cue(engine) == "run"
-    assert engine.snapshot()["speech"]["seq"] == 4
+    assert engine.snapshot()["speech"]["seq"] == 5
     assert engine.snapshot()["speech"]["text"] == CAPTIONS[engine.speech["clip"]]
 
     assert engine.snapshot()["phase"] == "escaped"
@@ -226,8 +228,8 @@ def test_muted_voice_still_emits_caption_events(engine: FocusEngine, clock: Cloc
 
 
 def test_muting_mid_escape_preserves_caption_sequence(engine: FocusEngine, clock: Clock) -> None:
-    engine.robot_event("docked")
     engine.start("Write", 60)
+    engine.robot_event("docked")
     report(engine, clock, NOT_FOCUSED, 12)
     engine.update_settings({"voice_enabled": False})
     clock.tick(60)

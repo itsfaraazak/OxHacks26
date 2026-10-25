@@ -9,6 +9,7 @@
 #include "clip_player.h"
 #include "clip_store.h"
 #include "settings.h"
+#include "provisioning.h"
 
 namespace audio {
 namespace {
@@ -108,7 +109,7 @@ const char* speakerName(Speaker s) {
 
 void begin() {
   mapClips();
-  if (SPEAKER_NAME[0] == '\0') {
+  if (provisioning::speakerName().isEmpty()) {
     Serial.println("[audio] SPEAKER_NAME is empty: Bluetooth audio off, speaker reports \"none\"");
     return;
   }
@@ -116,8 +117,9 @@ void begin() {
   a2dp.set_data_callback(dataCallback);
   a2dp.set_task_core(1);  // Bluetooth app task on core 1; the backend task runs on core 0
   a2dp.set_volume(AUDIO_VOLUME);
-  Serial.printf("[audio] starting A2DP source, looking for \"%s\" (connects ~10 s after boot)\n", SPEAKER_NAME);
-  a2dp.start(SPEAKER_NAME);
+  Serial.printf("[audio] starting A2DP source, looking for \"%s\" (connects ~10 s after boot)\n",
+                provisioning::speakerName().c_str());
+  a2dp.start(provisioning::speakerName().c_str());
   btStarted = true;
 }
 
@@ -129,7 +131,9 @@ void tick(uint32_t now_ms) {
     if (connected) {
       ++st.connects;
       reconnectBackoff.reset(now_ms);
-      Serial.printf("[a2dp] speaker connected (%s)\n", a2dp.get_name());
+      // The source library's optional local name can be null even after connection.
+      // Log our configured target instead of passing get_name() to printf("%s").
+      Serial.printf("[a2dp] speaker connected (%s)\n", provisioning::speakerName().c_str());
     } else {
       ++st.disconnects;
       Serial.println("[a2dp] speaker disconnected");

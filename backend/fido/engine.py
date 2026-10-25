@@ -184,8 +184,10 @@ class FocusEngine:
         )
         self._last_nudge_at = float("-inf")
         self._nudge_voiced = False
+        # The physical button acknowledges this session, not a persistent dock sensor.
+        self.phone_docked = False
         self._log(now, "Session created")
-        self.advance()  # may start watching straight away (phone already docked)
+        self.advance()  # only require_dock=False may skip the fresh acknowledgement
         if self.session.phase is Phase.AWAITING_PHONE:
             self._say("dock", now)
         self._changed()

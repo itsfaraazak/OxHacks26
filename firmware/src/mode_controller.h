@@ -13,7 +13,7 @@ class ModeController {
       : safety_(safety), motors_(motors), display_(display) {}
 
   // Call every ~10 ms. `task` is the current task text from the backend (may be "").
-  void update(uint32_t now_ms, const char* task);
+  void update(uint32_t now_ms, const char* task, bool rangeFresh, float rangeCm);
   const char* lastStopReason() const { return fido::stopReasonName(why_); }
 
  private:

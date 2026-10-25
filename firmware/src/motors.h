@@ -13,6 +13,9 @@ class Motors {
   bool moving() const { return moving_; }
 
  private:
-  void setSide(int pwmChannel, int in1, int in2, bool invert, float speed);
+  void setSide(int pwmChannel, bool invert, float speed);
   bool moving_ = false;
+  float lastLeft_ = 0, lastRight_ = 0;
+  uint32_t reverseAt_ = 0;
+  bool reversing_ = false;
 };

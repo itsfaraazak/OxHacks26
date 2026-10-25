@@ -9,6 +9,7 @@
 // See lib/fido_core/src/motor_safety.h for the rules; they have host-side unit tests.
 #include <Arduino.h>
 #include <esp_task_wdt.h>
+#include <WiFi.h>
 
 #include "audio.h"
 #include "backend_client.h"
@@ -19,6 +20,8 @@
 #include "nfc.h"
 #include "settings.h"
 #include "shared_safety.h"
+#include "hardware.h"
+#include "provisioning.h"
 
 namespace {
 
@@ -35,17 +38,19 @@ fido::SafetyConfig makeSafetyConfig() {
 
 SharedSafety safety(makeSafetyConfig());
 Motors motors;
-SerialDisplay display;
+OledDisplay display;
 SerialNfc nfc;  // swap for a real reader implementing Nfc
 BackendClient backend(safety);
 ModeController controller(safety, motors, display);
 Console console(nfc, safety, backend);
 
 uint32_t lastStatus = 0;
+bool caughtPending = false;
+bool centreRequested = false;
 
 }  // namespace
 
-void setup() {
+void fidoSetup() {
   motors.begin();  // first: every motor pin to its stopped state
   Serial.begin(115200);
   delay(200);
@@ -57,6 +62,8 @@ void setup() {
   display.begin();
   display.show("Fido booting", "");
   nfc.begin();
+  hardware::begin();
+  provisioning::begin();
   backend.begin();  // Wi-Fi first so it gets the radio before Bluetooth starts
   audio::begin();
   Console::help();
@@ -68,21 +75,60 @@ void setup() {
   esp_task_wdt_add(nullptr);
 }
 
-void loop() {
+void fidoLoop() {
   esp_task_wdt_reset();
   uint32_t now = millis();
 
   console.poll();
+  // Stop before servicing setup HTTP, which may wait briefly on a slow client.
+  if (WiFi.softAPgetStationNum() > 0) motors.stop();
+  provisioning::poll();
+  if (provisioning::restarting()) {
+    safety.setEstop(true);
+    motors.stop();
+    return;
+  }
+  hardware::tickRange();
   for (NfcEvent e = nfc.poll(); e != NfcEvent::None; e = nfc.poll()) backend.sendEvent(e);
 
   bool valid;
   fido::Command cmd = backend.latest(valid);
-  controller.update(now, cmd.task);
+  if (caughtPending && valid && cmd.mode != fido::Mode::Run) caughtPending = false;
+  if (hardware::buttonPressed()) {
+    Serial.println("[button] clicked");
+    if (valid && (cmd.mode == fido::Mode::Run || millis() - backend.lastOkMs() < kWatchdogMs)) {
+      NfcEvent event = cmd.mode == fido::Mode::BeckonDock ? NfcEvent::Docked :
+                       cmd.mode == fido::Mode::Run ? NfcEvent::Caught : NfcEvent::None;
+      if (event == NfcEvent::Caught) {
+        caughtPending = true;
+        motors.stop(); // Immediate local stop, even before server acknowledges the catch.
+      }
+      if (event != NfcEvent::None && !backend.sendEvent(event))
+        Serial.println("[button] event queue full; click again");
+      if (event == NfcEvent::None) Serial.println("[button] no action in this mode");
+    } else {
+      Serial.println("[button] backend stale; ignored");
+    }
+  }
+  if (!centreRequested && now > 10000) {
+    // Gives time to reconnect GPIO12 after boot. Servo stays centred thereafter.
+    hardware::centreServo();
+    centreRequested = true;
+    Serial.println("[servo] centre signal active on GPIO12");
+  }
+  if (caughtPending || WiFi.softAPgetStationNum() > 0) {
+    motors.stop();
+  } else {
+    controller.update(now, cmd.task, hardware::rangeFresh(), hardware::rangeCm());
+  }
   audio::tick(now);
 
   if (now - lastStatus >= 5000) {
     lastStatus = now;
     printStatus(backend, safety);
+    Serial.printf("[range] %.1f cm (%s) | catch %s | setup clients %u\n",
+                  hardware::rangeCm(), hardware::rangeFresh() ? "fresh" : "STOP: stale/invalid",
+                  caughtPending ? "pending" : "no", WiFi.softAPgetStationNum());
   }
   delay(10);
 }

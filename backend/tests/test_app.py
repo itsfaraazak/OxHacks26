@@ -69,6 +69,23 @@ def test_full_journey_over_http(client, clock: Clock) -> None:
     assert client.get("/api/history").json[0]["escapes"] == 1
 
 
+def test_each_session_waits_for_new_button_event(client, clock: Clock) -> None:
+    for task in ("First", "Second"):
+        response = client.post("/api/session", json={"task": task})
+        assert response.status_code == 201
+        assert response.json["phase"] == "awaiting_phone"
+        assert response.json["robot"]["phone_docked"] is False
+        assert response.json["speech"]["cue"] == "dock"
+        clock.now += 30
+        command = client.post("/api/robot/events", json={"event": "heartbeat"}).json
+        assert command["mode"] == "beckon_dock"
+        assert command["remaining_seconds"] == 1500
+        command = client.post("/api/robot/events", json={"event": "docked"}).json
+        assert command["mode"] == "watch"
+        assert command["speech"]["cue"] == "start"
+        assert client.post("/api/session/end").status_code == 200
+
+
 def test_errors_distinguish_bad_input_from_wrong_state(client) -> None:
     assert client.post("/api/session", json={"task": "", "duration_minutes": 25}).status_code == 400
     assert client.post("/api/session", data="not json").status_code == 400

@@ -3,6 +3,7 @@
 
 #include "motion_planner.h"
 #include "motor_safety.h"
+#include "obstacle.h"
 
 using namespace fido;
 
@@ -190,10 +191,34 @@ void test_nudge_wiggle_is_tiny_and_balanced() {
     if (!stopped(m)) ++moving_ms;
   }
   TEST_ASSERT_TRUE(peak <= 0.25f + 1e-6f);
-  TEST_ASSERT_TRUE(moving_ms <= 400);                     // short pulses
-  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, net_left + net_right);  // wheels oppose: no translation
+  TEST_ASSERT_EQUAL(600, moving_ms);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, net_left);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, net_right);
+  TEST_ASSERT_TRUE(stopped(planMotion(Mode::Nudge, 1500))); // Not repeated.
   TEST_ASSERT_TRUE(stopped(planMotion(Mode::Watch, 0)));
   TEST_ASSERT_TRUE(stopped(planMotion(Mode::Bark, 0)));
+}
+
+void test_obstacle_turn_hysteresis_and_missing_sensor() {
+  ObstacleGate o;
+  TEST_ASSERT_TRUE(stopped(o.apply(Mode::Run, kFull, false, 100)));
+  TEST_ASSERT_TRUE(stopped(o.apply(Mode::Run, kFull, true, 0)));
+  MotorCommand m = o.apply(Mode::Run, kFull, true, 19);
+  TEST_ASSERT_EQUAL_FLOAT(-1, m.left);
+  TEST_ASSERT_EQUAL_FLOAT(1, m.right);
+  TEST_ASSERT_EQUAL_FLOAT(-1, o.apply(Mode::Run, kFull, true, 23).left);
+  TEST_ASSERT_EQUAL_FLOAT(1, o.apply(Mode::Run, kFull, true, 25).left);
+  TEST_ASSERT_TRUE(stopped(o.apply(Mode::Nudge, kFull, true, 19)));
+  TEST_ASSERT_EQUAL_FLOAT(-1, o.apply(Mode::Nudge, {-1, -1}, true, 19).left);
+}
+
+void test_obstacle_cannot_bypass_backend_stop() {
+  ObstacleGate o;
+  MotorSafety s(cfg());
+  s.onReply(0, Mode::Run, false);
+  TEST_ASSERT_TRUE(stopped(s.gate(10, o.apply(Mode::Run, kFull, true, 10))));
+  s.onReply(20, Mode::Run, true);
+  TEST_ASSERT_TRUE(stopped(s.gate(3020, o.apply(Mode::Run, kFull, true, 10))));
 }
 
 int main() {
@@ -214,5 +239,7 @@ int main() {
   RUN_TEST(test_new_run_gets_a_fresh_escape_timer);
   RUN_TEST(test_estop_latches);
   RUN_TEST(test_nudge_wiggle_is_tiny_and_balanced);
+  RUN_TEST(test_obstacle_turn_hysteresis_and_missing_sensor);
+  RUN_TEST(test_obstacle_cannot_bypass_backend_stop);
   return UNITY_END();
 }

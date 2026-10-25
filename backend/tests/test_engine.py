@@ -55,9 +55,24 @@ def test_session_waits_for_phone_dock_then_focuses(engine: FocusEngine) -> None:
     assert phase(engine) is Phase.FOCUSING
 
 
-def test_already_docked_phone_starts_focusing_immediately(engine: FocusEngine) -> None:
+def test_old_dock_acknowledgement_does_not_start_new_session(engine: FocusEngine) -> None:
     engine.robot_event("docked")
     engine.start("Write", 25)
+    assert phase(engine) is Phase.AWAITING_PHONE
+    assert engine.snapshot()["robot"]["phone_docked"] is False
+    engine.robot_event("docked")
+    assert phase(engine) is Phase.FOCUSING
+
+
+def test_second_session_requires_another_press(engine: FocusEngine, clock: Clock) -> None:
+    docked_session(engine)
+    engine.apply("end")
+    engine.start("Second task", 25)
+    clock.tick(30)
+    engine.robot_event("heartbeat")
+    assert phase(engine) is Phase.AWAITING_PHONE
+    assert engine.snapshot()["session"]["remaining_seconds"] == 1500
+    engine.robot_event("docked")
     assert phase(engine) is Phase.FOCUSING
 
 
@@ -124,6 +139,8 @@ def test_robot_stop_ends_failed_session_until_explicit_restart(engine: FocusEngi
     assert phase(engine) is Phase.FAILED
     report(engine, clock, FOCUSED, 1)
     engine.start("Write the report", 25)
+    assert phase(engine) is Phase.AWAITING_PHONE
+    engine.robot_event("docked")
     assert phase(engine) is Phase.FOCUSING
     assert engine.session.id != old_id
     assert engine.snapshot()["session"]["remaining_seconds"] == 1500

@@ -9,6 +9,7 @@
 
 #include "motion_planner.h"
 #include "motor_safety.h"
+#include "obstacle.h"
 
 class SharedSafety {
  public:
@@ -44,12 +45,13 @@ class SharedSafety {
     fido::StopReason why;
   };
 
-  Tick tick(uint32_t now_ms) {
+  Tick tick(uint32_t now_ms, bool rangeFresh = false, float rangeCm = 0) {
     Tick t;
     portENTER_CRITICAL(&mux_);
     t.mode = safety_.mode();
     t.ms_in_mode = safety_.msInMode(now_ms);
     t.intent = fido::planMotion(t.mode, t.ms_in_mode);
+    t.intent = obstacle_.apply(t.mode, t.intent, rangeFresh, rangeCm);
     t.output = safety_.gate(now_ms, t.intent, &t.why);
     portEXIT_CRITICAL(&mux_);
     return t;
@@ -58,4 +60,5 @@ class SharedSafety {
  private:
   portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
   fido::MotorSafety safety_;
+  fido::ObstacleGate obstacle_;
 };
