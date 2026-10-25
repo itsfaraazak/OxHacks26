@@ -35,7 +35,8 @@ curl -s -X PATCH "$API/api/settings" -H "$JSON" -d '{"bark_after_seconds":3,"esc
 done) &
 PIDS="$PIDS $!"
 
-$PY -m detector.agent --source laptop --camera "$CAMERA" &
+# The hardware-free demo must not implicitly spend Presage credits.
+$PY -m detector.agent --source laptop --camera "$CAMERA" --no-presage &
 PIDS="$PIDS $!"
 
 echo

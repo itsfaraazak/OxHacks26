@@ -5,6 +5,7 @@
   "description": "Safe, bounded test runner for Presage SmartSpectra SDK",
   "main": "test_presage.mjs",
   "scripts": {
+    "test": "node --test metrics.test.mjs bridge.test.mjs",
     "test-safe": "node test_presage.mjs"
   },
   "dependencies": {

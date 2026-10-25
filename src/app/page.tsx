@@ -18,7 +18,7 @@ const phaseCopy: Record<Phase, [string, string]> = {
   escaped: ["Fido ran off with your phone.", "Session failed. Catch Fido, then press Stop Fido."],
   paused: ["Take a little breather.", "Your session is paused. Fido’s not going anywhere."],
   completed: ["Look at you, focused.", "One small session. A meaningful step forward."],
-  failed: ["Fido stopped. Take a moment.", "That timer is over. Press Start again when you’re ready for a fresh session."],
+  failed: ["Fido stopped. Take a moment.", "That timer is over. Press Start when you’re ready for a fresh session."],
 };
 const floatingNote: Record<Phase, string> = {
   idle: "Ready when you are", awaiting_phone: "Waiting for your phone", focusing: "Keeping watch",
@@ -204,7 +204,7 @@ export default function Home() {
               {phase === "awaiting_phone" && settings?.require_dock && !robot?.online && <div className="privacy-note"><Dog size={17}/><span>Fido’s robot isn’t connected. No robot yet? Turn on <button className="link-button" onClick={openSettings}>Start without docking</button> in Settings.</span></div>}
               {!session ? <button className="primary-button" disabled={!online || busy} onClick={start}>Let’s focus <ArrowRight size={19}/></button>
                 : <div className="session-actions">
-                  {canStart ? <button className="primary-button" disabled={!online || busy} onClick={start}>{phase === "failed" ? "Start again" : "Let’s focus"} <ArrowRight size={17}/></button>
+                  {canStart ? <button className="primary-button" disabled={!online || busy} onClick={start}>{phase === "failed" ? "Start" : "Let’s focus"} <ArrowRight size={17}/></button>
                     : phase === "escaped" ? <button className="primary-button" disabled={busy} onClick={() => act("caught")}><Hand size={17}/> Stop Fido</button>
                     : phase === "paused" ? <button className="primary-button" disabled={busy} onClick={() => act("resume")}><Play size={17}/> Keep going</button>
                     : <button className="primary-button" disabled={busy || !PAUSABLE.includes(phase)} onClick={() => act("pause")}><Pause size={17}/> Take a breath</button>}

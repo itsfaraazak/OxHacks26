@@ -11,7 +11,8 @@ the session and the dog.
     python -m detector.agent --camera http://dog.local:81/stream --source dog
     python -m detector.agent --camera recording.mp4 --source replay   # demo without a webcam
 
-Frames never leave this machine; only the decision and reason are sent.
+Frames stay on this machine, including the Presage child-process pipe.
+Only decisions, reasons, aggregate timers, and optional saved vitals go to Flask.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from typing import Any
 import cv2
 
 from .focus import DetectorConfig, FaceLandmarkSource, FocusReading, FocusTracker
+from .presage import CaptureClock, PresageBridge
 from .preview import PreviewServer
 
 DIR_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -108,10 +110,10 @@ def draw_overlay(frame, reading: FocusReading, config: DetectorConfig, vitals, f
         cv2.putText(frame, f"FOCUS: {state}", (25, 65), cv2.FONT_HERSHEY_DUPLEX, 1.8, (255, 255, 255), 3)
 
         if reading.eyes_closed_seconds > 0.8:
-            text = f"Sleep: {reading.eyes_closed_seconds:.1f}s / {config.micro_sleep_seconds}s"
+            text = f"Eyes closed: {reading.eyes_closed_seconds:.1f}/{config.micro_sleep_seconds}s"
             fill = reading.eyes_closed_seconds / config.micro_sleep_seconds
-        elif reading.talking_seconds > 0.2:
-            text = f"Talking: {reading.talking_seconds:.1f}s / {config.talking_trigger_seconds}s"
+        elif reading.talking_seconds > 0:
+            text = f"Presage talk: {reading.talking_seconds:.1f}/{config.talking_trigger_seconds}s"
             fill = reading.talking_seconds / config.talking_trigger_seconds
         else:
             text = f"Slacking: {reading.slacking_seconds:.1f}s / {config.slack_trigger_seconds}s"
@@ -142,6 +144,15 @@ def draw_overlay(frame, reading: FocusReading, config: DetectorConfig, vitals, f
     org = (w - tw - 12, 108)
     cv2.putText(frame, status, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3)  # outline: readable on any background
     cv2.putText(frame, status, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    blink = "?" if reading.blinking is None else "yes" if reading.blinking else "no"
+    talk = "?" if reading.talking is None else "yes" if reading.talking else "no"
+    eyes = "?" if reading.eyes_closed is None else "closed" if reading.eyes_closed else "open"
+    face_status = f"Presage: {reading.presage_status} | talk {talk}"
+    cv2.putText(frame, face_status, (12, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 3)
+    cv2.putText(frame, face_status, (12, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+    eye_status = f"Blink {blink} ({reading.blinks}) | eyes {eyes} (Presage landmarks)"
+    cv2.putText(frame, eye_status, (12, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 3)
+    cv2.putText(frame, eye_status, (12, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
 
 
 def open_camera(camera: str, width: int | None, height: int | None, fps: int | None) -> cv2.VideoCapture:
@@ -168,7 +179,14 @@ def main() -> None:
     parser.add_argument("--window", action="store_true", help="also open the legacy OpenCV window")
     parser.add_argument("--preview-port", type=int, default=5002, help="local website camera preview port")
     parser.add_argument("--no-flip", action="store_true", help="do not mirror the image like a selfie view")
+    parser.add_argument("--no-presage", action="store_true", help="gaze/posture only; no paid SDK scan or face-activity fallback")
+    parser.add_argument(
+        "--presage-seconds", type=float, default=25,
+        help="one Presage scan budget (default 25 s; up to 1500 s explicitly, may cost more credits)",
+    )
     args = parser.parse_args()
+    if not 0 < args.presage_seconds <= 1500:
+        parser.error("--presage-seconds must be > 0 and <= 1500")
 
     preview = None
     if not args.headless:
@@ -189,18 +207,32 @@ def main() -> None:
     config = DetectorConfig()
     tracker = FocusTracker(config)
     faces = FaceLandmarkSource()
+    presage = None
+    if not args.no_presage:
+        try:
+            presage = PresageBridge(args.presage_seconds)
+        except (RuntimeError, OSError) as err:
+            faces.close()
+            cap.release()
+            if preview:
+                preview.close()
+            raise SystemExit(str(err)) from err
+        print(f"Presage face detection: one {args.presage_seconds:g}s scan; no automatic paid restart.")
     reporter = Reporter(args.server, os.environ.get("FIDO_DEVICE_TOKEN"))
     print(f"Watching camera {args.camera!r} as {args.source!r}; reporting to {args.server}. Ctrl+C to quit.")
     if preview:
         print(f"Website preview ready at http://localhost:{preview.port}/preview.mjpg (this computer only).")
 
-    last_time = time.time()
+    capture_clock = CaptureClock()
+    last_time = time.monotonic()
     last_report = 0.0
     last_focused: bool | None = None
     calibration_id: str | None = None
     fps = 0.0
     vitals: dict[str, Any] | None = None
     last_vitals_read = 0.0
+    had_face = False
+    last_presage_status = ""
 
     try:
         while True:
@@ -212,22 +244,43 @@ def main() -> None:
                 print("Camera stopped delivering frames")
                 break
             if is_file:
-                time.sleep(max(0.0, file_frame_seconds - (time.time() - last_time)))
+                time.sleep(max(0.0, file_frame_seconds - (time.monotonic() - last_time)))
             blank_frames = blank_frames + 1 if frame.max() < 10 else 0
             if blank_frames == 60:
                 print("Camera frames are completely black: check the privacy shutter / camera kill switch")
             now = time.time()
-            dt, last_time = now - last_time, now
+            monotonic_now = time.monotonic()
+            frame_timestamp = capture_clock.now_us()
+            dt, last_time = monotonic_now - last_time, monotonic_now
             fps = 0.9 * fps + 0.1 * (1.0 / dt) if dt > 0 else fps
 
             # Start each session from a fresh posture baseline, like restarting the prototype.
             if reporter.calibration_id and reporter.calibration_id != calibration_id:
                 calibration_id = reporter.calibration_id
                 tracker.recalibrate()
+                if presage:
+                    presage.reset(now)
 
             if not args.no_flip:
                 frame = cv2.flip(frame, 1)
-            reading = tracker.update(faces.signals(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)), dt)
+            if presage and reporter.calibration_id:
+                # Feed capture before MediaPipe work, which may itself stall.
+                # Queue only real frames with their actual capture intervals.
+                height, width = frame.shape[:2]
+                scale = min(1.0, 640 / width, 480 / height)
+                sdk_frame = cv2.resize(frame, (max(1, int(width * scale)), max(1, int(height * scale))))
+                sdk_height, sdk_width = sdk_frame.shape[:2]
+                presage.send(sdk_width, sdk_height, sdk_frame.tobytes(), frame_timestamp)
+            signals = faces.signals(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            if presage:
+                if signals is None and had_face:
+                    presage.reset(now)
+            had_face = signals is not None
+            face_metrics = presage.read(time.time()) if presage else None
+            reading = tracker.update(signals, dt, face_metrics)
+            if reading.presage_status != last_presage_status:
+                last_presage_status = reading.presage_status
+                print(f"Presage: {last_presage_status}")
 
             if now - last_vitals_read >= 1.0:  # the prototype re-read this file every frame
                 vitals, last_vitals_read = load_presage_vitals(), now
@@ -246,6 +299,11 @@ def main() -> None:
                                 "slacking": round(reading.slacking_seconds, 2),
                                 "eyes_closed": round(reading.eyes_closed_seconds, 2),
                                 "talking": round(reading.talking_seconds, 2),
+                                "presage_talking_known": int(reading.talking is not None),
+                                "presage_blinks": reading.blinks,
+                                "presage_blink_known": int(reading.blinking is not None),
+                                "presage_blinking": int(reading.blinking is True),
+                                "presage_eye_closure_known": int(reading.eyes_closed is not None),
                             },
                         },
                         "vitals": vitals,
@@ -265,6 +323,8 @@ def main() -> None:
     finally:
         cap.release()
         faces.close()
+        if presage:
+            presage.close()
         if preview:
             preview.close()
         if args.window:

@@ -7,7 +7,8 @@ and change state through it.
 The detection logic is Vayun's prototype
 ([`archive/oxhack26-prototype`](../archive/oxhack26-prototype), from
 [vayunk/Oxhack26](https://github.com/vayunk/Oxhack26) at `9e49425`), ported
-without changing its thresholds or timers.
+with its gaze geometry and posture calibration preserved. Face activity now
+uses Presage rather than the prototype's MediaPipe jaw/blink thresholds.
 
 > [!IMPORTANT]
 > **Presage vitals come from a short 25-second scan, not a live feed.**
@@ -18,8 +19,11 @@ without changing its thresholds or timers.
 > pulse, breathing and HRV. Those numbers are a snapshot from that scan; they
 > do not update during a session. The scan needs a still, front-facing face
 > at 25+ fps, and in 25 s usually yields pulse only (breathing needs 30 s, HRV
-> 60 s). Focus detection itself (MediaPipe + OpenCV) is fully local and free.
-> See [Presage vitals](#presage-vitals).
+> 60 s). Gaze/posture detection is local and free. **Talking/blinking and
+> landmark-based eye closure now use a separate bounded Presage face scan**,
+> launched automatically by the camera agent after Start. That scan may consume
+> credits too; it defaults to 25 seconds and never auto-restarts.
+> See [Presage face detection](#presage-face-detection) and [Presage vitals](#presage-vitals).
 
 ```
 laptop / dog webcam                         phones + laptop browsers
@@ -35,7 +39,7 @@ laptop / dog webcam                         phones + laptop browsers
 | `fido/app.py` | HTTP API, Server-Sent Events, device token. |
 | `detector/focus.py` | Prototype detector: MediaPipe face geometry + YES / NO timers. |
 | `detector/agent.py` | Runs the detector on a camera and reports to the backend. |
-| `presage/` | Presage SmartSpectra harness, as in the prototype. |
+| `presage/` | Live face-metric bridge plus the preserved 25-second vitals harness. |
 
 ## Run it locally
 
@@ -44,6 +48,8 @@ Requires Python 3.11+ (tested on 3.13). From this directory:
 ```sh
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt -r requirements-detector.txt
+(cd presage && npm ci)                 # native SmartSpectra runtime (Node.js 20.9+)
+# Set SMARTSPECTRA_API_KEY in presage/.env; do not commit it.
 
 .venv/bin/python -m fido                 # backend on http://0.0.0.0:5000
 .venv/bin/python -m detector.agent       # laptop webcam -> backend (Ctrl+C to quit)
@@ -69,14 +75,14 @@ there is no second browser camera capture.
 Keep all three processes running in separate terminals:
 
 ```sh
-# From backend/ (5001 avoids macOS AirPlay's port 5000)
-.venv/bin/python -m fido --port 5001
+# From backend/
+.venv/bin/python -m fido --port 5000
 
 # From the repo root
-NEXT_PUBLIC_FIDO_API=http://localhost:5001 sh run.sh dev
+NEXT_PUBLIC_FIDO_API=http://localhost:5000 PORT=3000 sh run.sh dev
 
 # From backend/
-.venv/bin/python -m detector.agent --server http://localhost:5001
+.venv/bin/python -m detector.agent --server http://localhost:5000
 ```
 
 Open http://localhost:3000. Python still needs macOS camera permission.
@@ -114,6 +120,85 @@ starts. Frames never leave the machine running the agent.
 
 With no robot yet, set `require_dock` to `false` (see Settings) so sessions
 start without docking the phone.
+
+### Presage face detection
+
+The normal `detector.agent` command launches `presage/bridge.mjs` as a child.
+Python owns the **only** camera capture and sends a downscaled BGR copy through
+a bounded local pipe; the Node SDK uses `useCustomInput()` and never opens the
+webcam. No additional terminal or HTTP service is needed.
+
+```sh
+# From backend/; install once, without starting a scan:
+(cd presage && npm ci)
+# Put SMARTSPECTRA_API_KEY in presage/.env, or export it in this terminal.
+.venv/bin/python -m detector.agent --server http://localhost:5000
+```
+
+One face-only scan begins when the backend reports a session after Start. The
+default wall-clock budget is **25 seconds**, followed by a stopped/unknown
+status. Gaze detection continues, but talking/eye closure are NOT monitored
+after the budget expires. No jaw/blink fallback or automatic paid restart.
+Restart Terminal 3 for another bounded scan.
+
+To deliberately allow face detection for a whole 25-minute session (may consume
+substantially more credits), opt in explicitly:
+
+```sh
+.venv/bin/python -m detector.agent --server http://localhost:5000 --presage-seconds 1500
+```
+
+For free posture-only testing, use `--no-presage`; no SDK session is started.
+The face scan doesn't request pulse/breathing/HRV and does not replace the
+optional vitals snapshot described below.
+
+Decision rules:
+
+- **Talking:** native stable `face.talking` samples; at least 0.6 seconds of
+  detected talking within the last 6 seconds. Short pauses don't discard the
+  window. This replaces both jaw-open time and mouth-opening burst heuristics.
+- **Blinking:** native stable `face.blinking`, shown as yes/no plus rising-edge
+  count. A normal blink does not trigger distraction.
+- **Eye closure:** derived from Presage's documented 478 pixel-coordinate face
+  landmarks ([model card and numbering reference](https://smartspectra.presagetech.com/docs/model-cards-and-limitations.md)).
+  Both eyes must have an eye-aspect ratio below 0.18 for 4 continuous seconds.
+  This is a tunable **prolonged-closure heuristic, not a Presage sleep diagnosis**.
+- Unstable, missing, stale (>1 s), duplicated, out-of-order, or pre-session
+  samples cannot extend timers. Duration advances only on new SDK timestamps,
+  never by repeatedly polling a held value. Opening eyes, a gap, face loss, or
+  session recalibration resets continuity.
+- **Anti-flicker recovery:** any focus NO takes effect immediately. Returning
+  to YES requires 2 continuous seconds of clear detector readings; another NO
+  restarts that countdown. The preview and backend receive this same latched
+  decision. Capture stalls over 1 second do not count toward recovery, and
+  session recalibration clears the latch for a fresh start.
+
+The preview identifies Presage status, talking, blinking and eye closure; `?`
+means unknown, not "not talking" or "eyes open". Auth/credit/runtime failures
+leave these signals unavailable, never silently replaced with MediaPipe.
+
+Frame timestamps are epoch-anchored once and then advanced by a monotonic
+clock. Frames captured before `sdk.start()` finishes are discarded, including
+ones buffered during native model/auth startup. Capture is handed to the bridge
+before MediaPipe processing. Actual capture intervals are retained: no replay,
+time compression, or interpolation to hide gaps. A real runtime gap can still
+stop the SDK; the preview reports its safe code/stage, e.g. `[11/frame]`.
+
+**Privacy and cost:** SmartSpectra computes metrics on-device, but contacts
+Presage for authentication/subscription/credit checks. This bridge disables
+optional SDK telemetry and does not enable LLM Insights. Frames travel only
+through the in-memory local pipe and optional localhost preview, never to Flask;
+no frame, landmark, or per-sample biometric files are written. Only decisions,
+reasons, aggregate talking/closure durations and blink/availability counts go to
+Flask's bounded in-memory latest readings (cleared on server restart). The key
+stays in the environment or ignored `.env`, never command arguments or logs.
+
+Offline tests (no camera, API key, authentication or credits):
+
+```sh
+.venv/bin/python -m pytest -q
+(cd presage && npm test)
+```
 
 ### Presage vitals
 
@@ -231,7 +316,8 @@ stateDiagram-v2
 
 - **Distracted** means any live, calibrated camera says NO (the prototype's
   rules: looking at the phone or lap, looking up or away, eyes closed for 4 s,
-  2 s of mouth-open activity within a rolling 6 s window, no face), or the phone left the dock.
+  repeated mouth-opening bursts or sustained mouth-open activity, no face),
+  or the phone left the dock.
 - **Escaped** keeps running even if the user refocuses. It ends only when the
   user catches the dog and presses its stop button (the app's **Stop Fido**
   button sends the same `caught` event), or after `escape_timeout_seconds`
@@ -242,12 +328,9 @@ stateDiagram-v2
 - The session clock starts when the phone is docked and runs in focusing,
   nudge, and barking. Escape freezes it: running away cannot earn a successful
   timer completion.
-- Talking uses camera jaw movement, not microphone audio. Actual mouth-open
-  time accumulates across pauses in a rolling 6-second window; silence never
-  counts as speech. Activity expires from the window and is cleared on face
-  loss or recalibration. This is a tunable heuristic, not speech recognition;
-  a held-open mouth or yawn can still trigger it. Only the resulting timer and
-  decision leave the detector, not frames or a speech history.
+- Face activity uses the [Presage face rules](#presage-face-detection), not
+  microphone audio or MediaPipe jaw/blink blendshapes. Only stable, fresh SDK
+  samples contribute. Missing Presage data is explicitly unknown.
 
 ## API
 
@@ -319,8 +402,10 @@ State snapshot (abridged):
 | `motion_enabled` | true | Robot may drive. Turn off to keep Fido still, e.g. as an emergency stop from the app |
 
 The nudge itself starts once a camera says NO, which already takes the
-prototype's 8 s of continuous slacking (or 4 s eyes closed, or 2 s mouth-open
-activity within the last 6 s). Talking thresholds live in `DetectorConfig`.
+prototype's 8 s of continuous slacking, or 4 s of continuous Presage-landmark
+eye closure, or 0.6 s of stable Presage talking in the last 6 s.
+Decision thresholds live in `DetectorConfig`; sample/window handling is in
+`detector/presage.py`.
 
 ### Devices
 

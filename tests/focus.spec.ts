@@ -59,7 +59,7 @@ test("phone focus journey against the backend", async ({ page, request }) => {
   await expect(page.getByRole("button", { name: "Keep going" })).toHaveCount(0);
   const failed = (await (await request.get(`${API}/api/state`)).json()).session;
   await page.getByLabel("I want to focus on").fill("A fresh attempt");
-  await page.getByRole("button", { name: "Start again" }).click();
+  await page.getByRole("button", { name: "Start", exact: true }).click();
   await expect(heading(page, "You do your thing.")).toBeVisible();
   const restarted = (await (await request.get(`${API}/api/state`)).json()).session;
   expect(restarted.id).not.toBe(failed.id);

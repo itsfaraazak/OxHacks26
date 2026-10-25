@@ -49,8 +49,18 @@ real distraction detection, run the detector agent on the laptop (see
 
 ```sh
 cd backend && .venv/bin/pip install -r requirements-detector.txt
+(cd presage && npm ci)
+# Set SMARTSPECTRA_API_KEY in presage/.env (gitignored), then:
 .venv/bin/python -m detector.agent
 ```
+
+The agent uses one webcam and automatically launches the local Presage face
+bridge for talking/blinking and landmark-derived prolonged eye closure.
+The default paid scan is bounded to **25 seconds after Start**, not the whole
+session; after that only gaze/posture detection continues. Use
+`--presage-seconds 1500` only if you deliberately want a full-session scan and
+accept its credit cost, or `--no-presage` for free gaze-only testing. See the
+[face-detection rules and privacy notes](backend/README.md#presage-face-detection).
 
 `run.sh` is the editable source for setup and launch commands; `package.json`
 contains the underlying npm scripts.
