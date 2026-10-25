@@ -12,7 +12,7 @@ Players, in priority order:
    reports no connected speaker.
 3. **A judge's phone**, opt-in only (the web app).
 
-The robot additionally has quiet local presence woofs: `woof-1` at 30% PCM
+The robot additionally has local presence woofs: `woof-1` at full PCM
 amplitude, no more than every 22s outside focus or 60s during focus, after
 quiet time following backend cues. These are not session speech events and
 do not generate captions. They require explicit `voice_enabled: true` in robot
@@ -44,10 +44,10 @@ no playback acknowledgement or retry of a consumed sequence.
 
 Cues are emitted by the engine on transitions: `dock` (session created, waiting
 for the phone), `start` (phone docked, watching begins), `nudge`, `bark`,
-`run` (escape begins, then repeated every `speech_repeat_seconds` = 25 s while
+`run` (escape begins, then repeated every `speech_repeat_seconds` = 4 s while
 escaped), `caught`, `timeout` (escape ended by the 10 minute timer), `praise`
-(refocused before escaping), `done`. When a cue has several clips they rotate
-in order. Setting `voice_enabled` to `false` (default `true`) mutes playback,
+(refocused before escaping), `done`. Run clips are random without immediate
+repeats; other cues rotate in order. Setting `voice_enabled` to `false` (default `true`) mutes playback,
 not caption events: the full state still emits cues and advances `seq`.
 The frontend shows captions independently of both global mute and its local
 audio opt-in. Frontend and laptop players consume muted sequences without
@@ -79,7 +79,8 @@ sequence gate records these silent events, preventing replay on unmute.
 ### Which clip plays when
 
 `PLAYLIST` maps a cue to a list of clip names. A clip may appear under several
-cues; a cue that is missing or empty is silent; a cue's clips rotate in order.
+cues; a cue that is missing or empty is silent. Run picks randomly without
+immediate repeats; other cues rotate in order.
 
 | Cue | Clips |
 | --- | --- |
@@ -87,7 +88,7 @@ cues; a cue that is missing or empty is silent; a cue's clips rotate in order.
 | `start` | `woof-1` |
 | `nudge` | `nudge-1` |
 | `bark` | `bark-4`, `bark-5` |
-| `run` | `run-5`, `bark-5` (repeats every `speech_repeat_seconds`) |
+| `run` | Random `run-5`, `bark-4`, `bark-5`, `woof-1` every 4s by default |
 | `caught` | `bark-4` |
 | `timeout` | `nudge-1` |
 | `praise` | `woof-1` |

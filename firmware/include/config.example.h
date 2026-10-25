@@ -19,7 +19,7 @@
 // pairing mode the first time; afterwards the ESP32 reconnects to the last address on its own.
 // "" disables Bluetooth audio entirely (the heartbeat then reports speaker "none").
 #define SPEAKER_NAME "Acoustic Solutions WJ-201"
-#define AUDIO_VOLUME 90  // 0..127, A2DP absolute volume sent to the speaker
+#define AUDIO_VOLUME 127  // Maximum A2DP absolute volume requested from the speaker
 
 // ---- Motion: OFF unless you opt in --------------------------------------------------------
 // 0 = the motors can never be driven; the firmware only logs what it would have done.

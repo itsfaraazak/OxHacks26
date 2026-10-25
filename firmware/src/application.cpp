@@ -149,7 +149,7 @@ void fidoLoop() {
       WiFi.softAPgetStationNum() == 0 && now - lastPresenceSound >= soundInterval) {
     lastPresenceSound = now;
     if (audio::speaker() == audio::Speaker::Connected)
-      audio::request("woof-1", 30, false); // Quiet PCM, never interrupt another clip.
+      audio::request("woof-1", 100, false); // Full PCM amplitude; never interrupt another clip.
   }
 
   if (now - lastStatus >= 5000) {

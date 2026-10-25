@@ -16,7 +16,7 @@ inline MotorCommand presenceMotion(Mode mode, uint32_t elapsed) {
     elapsed = cycle < 8000 ? cycle : cycle - 8000;
     period = cycle < 8000 ? 8000 : 12000;
     start = period - 1000;
-    pulse = 80;
+    pulse = 120;
   } else {
     return {};
   }

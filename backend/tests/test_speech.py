@@ -173,15 +173,44 @@ def test_angry_line_repeats_while_escaped_then_caught(engine: FocusEngine, clock
     report(engine, clock, NOT_FOCUSED, 12)
     assert cue(engine) == "run"
     first = engine.snapshot()["speech"]
-    clock.tick(first["at"] + 24 - clock.now)
+    clock.tick(first["at"] + 3 - clock.now)
     engine.advance()
-    assert engine.snapshot()["speech"]["seq"] == first["seq"]  # 24 s after the taunt: not yet
-    clock.tick(2)
+    assert engine.snapshot()["speech"]["seq"] == first["seq"]  # no early repeat
+    clock.tick(1)
     engine.advance()
-    assert engine.snapshot()["speech"]["seq"] == first["seq"] + 1  # taunts again after 25 s
+    assert engine.snapshot()["speech"]["seq"] == first["seq"] + 1  # exactly four seconds
+    assert engine.snapshot()["speech"]["clip"] != first["clip"]
 
     engine.robot_event("caught")
     assert cue(engine) == "caught"
+
+
+def test_run_barks_use_random_pool_without_repeating_and_stop_when_caught(engine, clock, monkeypatch):
+    selections = []
+
+    def choose(options):
+        selections.append(list(options))
+        return options[-1]
+
+    monkeypatch.setattr("fido.engine.random.choice", choose)
+    engine.start("Write", 60)
+    engine.robot_event("docked")
+    report(engine, clock, NOT_FOCUSED, 12)
+    assert set(selections[0]) == {"run-5", "bark-4", "bark-5", "woof-1"}
+    previous = engine.snapshot()["speech"]
+    for _ in range(5):
+        clock.tick(4)
+        engine.advance()
+        current = engine.snapshot()["speech"]
+        assert previous["clip"] not in selections[-1]
+        assert current["clip"] != previous["clip"]
+        assert current["seq"] == previous["seq"] + 1
+        previous = current
+    engine.robot_event("caught")
+    caught = engine.snapshot()["speech"]
+    clock.tick(8)
+    engine.advance()
+    assert engine.snapshot()["speech"] == caught
 
 
 def test_caught_from_the_app_also_speaks(engine: FocusEngine, clock: Clock) -> None:

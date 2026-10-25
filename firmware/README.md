@@ -73,7 +73,7 @@ Connecting a setup client inhibits motor movement; disconnect before motion test
 
 | Backend mode | Hardware |
 |---|---|
-| sleep, beckon_dock | Paired 80ms in-place wiggles every 8–12s; frequent tail wags |
+| sleep, beckon_dock | Paired 120ms in-place wiggles every 8–12s; frequent tail wags |
 | watch | Paired 60ms wiggles about every 25s; smaller intermittent tail wags |
 | rest, celebrate | Wheels stopped; rest settles tail, celebration wags |
 | beckon_dock button | Stops locally while `docked` is acknowledged |
@@ -99,7 +99,8 @@ Keep on a stand for a stage demo or test on a clear floor well away from edges.
 Idle/focus wiggles use the same app permission, sensor, network and e-stop gates
 as run. There is no idle movement while disconnected or using setup.
 
-Autonomous `woof-1` is attenuated to 30% PCM amplitude, at most once per 22s in
+Speaker volume is requested at the maximum Bluetooth value (127); some speakers
+ignore remote volume changes. Autonomous `woof-1` uses full PCM amplitude, at most once per 22s in
 idle/docking/celebration and 60s in watch, with quiet time after backend cues.
 It never interrupts another clip; backend speech can interrupt an idle sound.
 No extra barks are added during nudge/bark/run/rest (backend cues remain authoritative).

@@ -143,7 +143,8 @@ CLIPS: dict[str, tuple[str, Line]] = {
 # CAPTIONS: the words of each recorded clip, shown in the app. They MUST match what the clip
 # really says, so edit them when you re-record.
 # PLAYLIST: which clips play at each moment (a cue). A clip may appear under several cues
-# (clips are reused). A cue that is missing or empty is silent. A cue's clips rotate in order.
+# (clips are reused). Empty cues are silent. Run picks randomly without repeats;
+# other cues rotate in order.
 # ---------------------------------------------------------------------------
 
 CAPTIONS: dict[str, str] = {
@@ -160,7 +161,7 @@ PLAYLIST: dict[str, list[str]] = {
     "start": ["woof-1"],  # phone docked, watching begins
     "nudge": ["nudge-1"],  # first sign of distraction
     "bark": ["bark-4", "bark-5"],  # still distracted
-    "run": ["run-5", "bark-5"],  # running away; repeats while the escape lasts
+    "run": ["run-5", "bark-4", "bark-5", "woof-1"],  # random, no immediate repeat
     "caught": ["bark-4"],  # the user caught Fido
     "timeout": ["nudge-1"],  # the escape timed out
     "praise": ["woof-1"],  # refocused before Fido ran away

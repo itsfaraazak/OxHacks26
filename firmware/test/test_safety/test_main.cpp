@@ -277,7 +277,7 @@ void test_presence_is_short_balanced_and_cancellable() {
       netRight += m.right;
       if (!stopped(m)) ++moving;
     }
-    TEST_ASSERT_TRUE(moving > 0 && moving < 1000);
+    TEST_ASSERT_TRUE(moving > 0 && moving < 1500);
     TEST_ASSERT_EQUAL_FLOAT(0, netLeft);
     TEST_ASSERT_EQUAL_FLOAT(0, netRight);
     MotorSafety s(cfg());

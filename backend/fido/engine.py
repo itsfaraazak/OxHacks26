@@ -17,6 +17,7 @@ It is not thread-safe; the web app serialises calls with a lock.
 from __future__ import annotations
 
 import re
+import random
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, fields
@@ -85,7 +86,7 @@ class Settings:
     require_dock: bool = True  # False: start without NFC docking (no hardware)
     motion_enabled: bool = True  # robot may drive; turn off to keep Fido still (e.g. on a crowded table)
     voice_enabled: bool = True  # Fido speaks and barks; off mutes every cue
-    speech_repeat_seconds: float = 25.0  # how often the angry line repeats while Fido runs away
+    speech_repeat_seconds: float = 4.0  # random bark cadence while Fido runs away
 
     def update(self, changes: dict[str, Any]) -> None:
         """Validate every change first, then apply all of them or none."""
@@ -412,7 +413,8 @@ class FocusEngine:
         """Record a caption/audio event for `cue` (see PLAYLIST). Returns False
         when the cue has no clips. Global mute gates playback, not captions.
 
-        A cue's clips rotate in order. Players speak each `seq` once; they decide how
+        Run barks are random without immediate repeats; other cues rotate.
+        Players speak each `seq` once; they decide how
         (robot speaker, laptop, phone).
         """
         clips = PLAYLIST.get(cue)
@@ -421,7 +423,12 @@ class FocusEngine:
         index = self._cue_counts.get(cue, 0) % len(clips)
         self._cue_counts[cue] = index + 1
         self._speech_seq += 1
-        clip = clips[index]
+        if cue == "run":
+            previous = self.speech["clip"] if self.speech and self.speech["cue"] == cue else None
+            choices = [clip for clip in clips if clip != previous] or clips
+            clip = random.choice(choices)
+        else:
+            clip = clips[index]
         self.speech = {
             "seq": self._speech_seq,
             "cue": cue,

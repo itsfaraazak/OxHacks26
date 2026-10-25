@@ -290,7 +290,8 @@ How they were made:
 
 **Which clip plays when** is one table, `PLAYLIST` in `fido/speech.py`: cue ->
 list of clip names. A clip may appear under several cues; a cue that is missing
-or empty is silent; a cue's clips rotate in order. Current table:
+or empty is silent; run clips are random without immediate repeats, other cues
+rotate in order. Current table:
 
 | Cue | Clips |
 | --- | --- |
@@ -298,7 +299,7 @@ or empty is silent; a cue's clips rotate in order. Current table:
 | `start` | `woof-1` |
 | `nudge` | `nudge-1` |
 | `bark` | `bark-4`, `bark-5` |
-| `run` | `run-5`, `bark-5` (repeats every `speech_repeat_seconds`) |
+| `run` | Random `run-5`, `bark-4`, `bark-5`, `woof-1` (every 4s by default) |
 | `caught` | `bark-4` |
 | `timeout` | `nudge-1` |
 | `praise` | `woof-1` |
