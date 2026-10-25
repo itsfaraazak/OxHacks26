@@ -1,0 +1,772 @@
+---
+title: Swift Migration Guide
+description: "Migrate the SmartSpectra Swift SDK to typed camera selection, public custom video input, specific usage errors, and other release-by-release API changes."
+sidebarTitle: Migration Guide
+---
+
+# SmartSpectra Swift SDK Migration Guide
+
+> Applies to SmartSpectra Swift SDK v3.x.
+> Migrating from a v3.0 release-candidate prior to rc.13, or from v2.x.
+
+## Swift SDK v3.4.0 Migration
+
+### Custom video input
+
+Camera capture remains the default. For camera selection changes, see below.
+Use `try sdk.useCustomInput()` to obtain a public frame-submission handle for
+your own camera or decoder. Await `sdk.start()` before submitting
+`CVPixelBuffer` or `CMSampleBuffer` frames. See the
+[custom camera example](headless-mode.md#use-your-own-camera-or-video-source).
+
+`try await sdk.reset()` stops processing and clears measurement output, retaining
+configuration and the custom-input handle. `try sdk.useCamera(.default)` switches back
+to SDK capture while stopped. Replacing an input invalidates older handles.
+
+The testing SPI `setVideoInputEnabled(_:)` now selects a source only while
+stopped. Calls during an active session leave the source unchanged and publish
+`.invalidState` on `sdk.error`. Move these calls after `stop()` or `reset()`.
+File playback remains testing-only; caller-owned frame input is public.
+
+The demo app's Video Testing tab now decodes clips in the app and calls
+`CustomInput.sendFrame` directly, with no testing SPI import. Optional timestamp
+sidecars still contain one integer millisecond value per decoded frame; the app
+converts these to microseconds. Decoding uses the formats supported by
+AVFoundation on the selected device or simulator.
+
+### Camera selection
+
+Camera selection is opt-in. Existing applications retain the front-camera default
+and the behavior of `sdk.config.cameraPosition`. That property and the original
+`try sdk.useCamera()` method remain available, with deprecation warnings.
+To adopt discovery and strict selection, call `try sdk.useCamera(selection)` while
+stopped:
+
+```swift
+// Discovery needs no SDK instance, authentication, or permission prompt.
+let cameras = try SmartSpectraSDK.availableCameras()
+
+let sdk = SmartSpectraSDK.shared
+try sdk.useCamera(.default)
+try sdk.useCamera(.front)
+try sdk.useCamera(.back)
+if let camera = cameras.first {
+    try sdk.useCamera(.byId(camera.id))
+}
+```
+
+Discovery returns `CameraInfo(id: name: facing: lensType:)`. IDs are opaque and device-local;
+names are optional. Facing is `.front`, `.back`, or `.unknown`, including external
+cameras whose direction is unknown. Visibility depends on platform permissions;
+discovery does not reserve a camera or guarantee a later capture will succeed.
+Discovery failures throw `SmartSpectraError` with `.inputUnavailable`.
+
+`lensType` reports `.wideAngle`, `.ultraWide`, `.telephoto`, or `.unknown`.
+Classification is best effort; missing metadata and cameras combining multiple
+lenses report `.unknown`. It does not describe digital zoom or change selection.
+Use it for picker labels and continue selecting by `id`.
+
+Explicit `.default` prefers front, then uses the first discovered camera. Explicit `.front`, `.back`, and `.byId` requests
+never fall back. Selection is resolved when capture starts; an unavailable
+camera fails `start()` with `.inputUnavailable`.
+
+`useCamera` throws `.configurationFailed` for an empty ID and `.invalidState`
+during startup, processing, stopping, or reset. A rejected request preserves
+the previous source. Stop/start/reset retain the selection until another source
+is selected. Once a typed selection is made, changes to the deprecated
+`cameraPosition` property do not override it. Calling the deprecated `useCamera()`
+returns to that property's selection behavior. To change cameras, await `stop()`, select, and start again:
+
+```swift
+try await sdk.stop()
+try sdk.useCamera(.back)
+try await sdk.start()
+```
+
+Choose the input from an explicit app action or initial setup while stopped.
+SwiftUI view initializers can run repeatedly, so avoid selecting an input there.
+
+The SwiftUI demo's checkup, headless, and capture screens and the UIKit sample
+provide **Select Camera** controls. The picker lists discovered cameras by name,
+facing, and opaque ID, with **Default** and **Refresh** actions. Selection is
+disabled during startup, processing, and stopping. After a failed Start, opening
+the picker awaits `reset()` before allowing a new selection; this also recovers
+failures that occurred before a processing session existed. Navigating between
+screens does not change the selected camera.
+
+The iOS Simulator may return no cameras. The picker displays an empty-state
+message and still offers Default and Refresh; selecting an actual camera ID
+requires a device with discoverable cameras.
+
+### Usage failures now report specific errors
+
+Usage entitlement checking continues throughout a measurement as before. What
+changes in v3.4.0 is how a terminal usage failure is reported. Observe
+`sdk.error` and handle:
+
+- `.authenticationFailed` for rejected credentials
+- `.creditExhausted` for an explicit quota denial
+- `.networkError` when entitlement cannot be refreshed in time
+
+The SDK also includes short measurements and the final partial interval before
+`stop()` in usage reporting. No public API changes are required.
+
+## Swift SDK v3.3.1 Migration
+
+### Stricter `PresageService-Info.plist` validation
+
+The SDK now validates the OAuth plist once, when the SDK loads, and surfaces
+problems as a non-retryable `configurationFailed` error instead of a generic
+auth-readiness failure at `start()`.
+
+What still works without changes:
+
+- No `PresageService-Info.plist` → API-key authentication, as before.
+- `IS_OAUTH_ENABLED` set to `false` (or legacy integer `0`) → API-key
+  authentication, as before.
+- An older plist revision **missing** `IS_OAUTH_ENABLED` → treated as
+  OAuth-off (API-key authentication), with a log message suggesting a
+  re-download from the portal.
+- An OAuth plist **missing** `BUNDLE_ID` (older revisions) → the local
+  bundle-identifier pre-check is skipped; the server still verifies your
+  app's bundle identifier during authentication.
+
+What now fails fast (previously fell back silently or failed later with a
+generic error):
+
+- `IS_OAUTH_ENABLED` present with a non-boolean value (e.g. the string
+  `"true"`) → `configurationFailed`; the API key, if any, is ignored.
+- OAuth enabled with a missing, blank, or wrong-typed `CLIENT_ID` or `SUB`
+  → `configurationFailed`.
+- `BUNDLE_ID` present with a blank or non-string value, or not matching the
+  running app target's Bundle Identifier → `configurationFailed`.
+
+If you hit any of these after upgrading, re-download the current
+`PresageService-Info.plist` for your app from
+[physiology.presagetech.com](https://physiology.presagetech.com) — error
+messages name the offending plist key but never echo its value.
+
+## Swift SDK v3.3.0 Migration
+
+### Default log verbosity is now warnings and errors only
+
+The SDK previously emitted informational log chatter by default. From v3.3.0
+the default level is `SmartSpectraLogLevel.warning`. If you relied on the
+informational output, restore it via `SmartSpectraConfig.logLevel`:
+
+```swift
+SmartSpectraSDK.shared.config.logLevel = .info
+```
+
+## Protobuf Type Renames
+
+The Swift SDK's protobuf-generated types previously carried a `Presage_Physiology_` prefix derived from the proto package. The prefix has been stripped at the protoc-gen-swift level (`option swift_prefix = "";`), so all proto types are now exposed under their bare names.
+
+### Quick reference
+
+| Before | After |
+| --- | --- |
+| `Presage_Physiology_Metrics` | `Metrics` |
+| `Presage_Physiology_Insight` | `Insight` |
+| `Presage_Physiology_InsightType` | `InsightType` |
+| `Presage_Physiology_FeatureType` | `FeatureType` |
+| `Presage_Physiology_MetricType` | `MetricType` |
+| `Presage_Physiology_Measurement` | `Measurement` |
+| `Presage_Physiology_MeasurementWithConfidence` | `MeasurementWithConfidence` |
+| `Presage_Physiology_DetectionStatus` | `DetectionStatus` |
+| `Presage_Physiology_ExpressionType` | `ExpressionType` |
+| `Presage_Physiology_StatusValue` | `StatusValue` |
+| `Presage_Physiology_StatusCode` | `StatusCode` |
+
+The same rule applies to every other type the proto schema exposes (`Pulse`, `Breathing`, `Trace`, `Strict`, `Face`, `Landmarks`, `Point2dFloat`, …).
+
+### What to change
+
+Replace any reference to a `Presage_Physiology_*` symbol with the bare name. A repo-wide search-and-replace is sufficient:
+
+```sh
+sed -i '' 's/Presage_Physiology_//g' <your-source-files>
+```
+
+### Name collisions
+
+Bare names can collide with types in modules the consumer also imports. Known collisions today:
+
+- `Measurement` collides with `Foundation.Measurement<UnitType>`.
+- `Trace` collides with `os.Trace` (OSLog signpost APIs).
+
+In files that import the colliding module, qualify the SmartSpectra type at the use site:
+
+```swift
+import Foundation
+import SmartSpectra
+
+var breathingTrace: [SmartSpectra.Measurement] = []
+let pulseTrace: SmartSpectra.Trace = ...
+```
+
+Everything else (`MeasurementWithConfidence`, `Pulse`, `Insight`, `Strict`, …) doesn't collide with anything in the standard Apple modules today — leave those bare.
+
+Wire format is unchanged (`swift_prefix` only affects Swift codegen).
+
+## Package Rename
+
+The Swift SDK module and SPM product were renamed from `SmartSpectraSwiftSDK` to `SmartSpectra`. Update every import and the shared SDK type:
+
+```swift
+// Before:
+import SmartSpectraSwiftSDK
+let sdk = SmartSpectraSwiftSDK.shared
+
+// After:
+import SmartSpectra
+let sdk = SmartSpectraSDK.shared
+```
+
+Most call sites should move from `SmartSpectraSwiftSDK.shared` to
+`SmartSpectraSDK.shared`.
+
+## Edge Metrics Migration
+
+The `metricsBuffer` pathway has been removed. Swift apps should now read vitals data from `metrics` on `SmartSpectraSDK.shared`.
+
+### What Changed
+
+- `metricsBuffer` and `$metricsBuffer` were removed
+- on-device `metrics` is now the vitals data source
+- public configuration now lives on `sdk.config`
+
+### Field Mappings
+
+| Old (`metricsBuffer`) | New (`metrics`) |
+| --------------------- | --------------- |
+| `pulse.rate` | `cardio.pulseRate` |
+| `breathing.rate` | `breathing.rate` |
+| `pulse.trace` | `cardio.arterialPressureTrace` |
+| `breathing.upperTrace` | `breathing.upperTrace` |
+
+### Important
+
+Cardio fields now require explicit opt-in through requested metrics configuration.
+
+```swift
+import SmartSpectra
+
+let sdk = SmartSpectraSDK.shared
+sdk.config.requestedMetrics = SmartSpectraConfig.breathingMetrics + SmartSpectraConfig.cardioMetrics
+```
+
+**Removed:**
+
+- `sdk.metricsBuffer`
+- `sdk.$metricsBuffer`
+- `MetricsBuffer`
+
+**Replace with:**
+
+```swift
+// Before:
+import SmartSpectraSwiftSDK
+
+let sdk = SmartSpectraSwiftSDK.shared
+sdk.$metricsBuffer.sink { buffer in
+    // read buffer.pulse.rate, buffer.breathing.rate, ...
+}
+```
+
+```swift
+// After:
+import SmartSpectra
+
+let sdk = SmartSpectraSDK.shared
+
+if let metrics = sdk.metrics {
+    // read metrics.cardio.pulseRate, metrics.breathing.rate, ...
+}
+```
+
+## Public Configuration Surface
+
+- authentication should be set through `sdk.config.apiKey`
+- metric selection should be set through `sdk.config.requestedMetrics`
+- camera selection should be set through `try sdk.useCamera(selection)` while stopped
+- preview frame publishing should be controlled through `sdk.config.imageOutputEnabled`
+
+### Removed
+
+- `sdk.setApiKey("...")`
+- `sdk.setCameraPosition(...)`
+- `sdk.setImageOutputEnabled(...)`
+
+### Replace With
+
+| Old | New |
+| --- | --- |
+| `sdk.setApiKey("...")` | `sdk.config.apiKey = "..."` |
+| `sdk.setCameraPosition(.front)` | `try sdk.useCamera(.front)` |
+| `sdk.setImageOutputEnabled(true)` | `sdk.config.imageOutputEnabled = true` |
+| no public metric-selection API | `sdk.config.requestedMetrics = [...]` |
+
+```swift
+// Before:
+let sdk = SmartSpectraSwiftSDK.shared
+sdk.setApiKey("YOUR_API_KEY")
+sdk.setCameraPosition(.front)
+sdk.setImageOutputEnabled(true)
+```
+
+```swift
+// After:
+let sdk = SmartSpectraSDK.shared
+sdk.config.apiKey = "YOUR_API_KEY"
+sdk.config.requestedMetrics = [.breathingRate, .pulseRate, .faceLandmarks]
+try sdk.useCamera(.front)
+sdk.config.imageOutputEnabled = true
+```
+
+## Headless Lifecycle Migration
+
+```swift
+// Before:
+let vitalsProcessor = SmartSpectraVitalsProcessor.shared
+
+vitalsProcessor.startProcessing { error in
+    if let error {
+        print(error.localizedDescription)
+    }
+}
+
+vitalsProcessor.stopProcessing()
+```
+
+```swift
+// After:
+let sdk = SmartSpectraSDK.shared
+
+try await sdk.start()
+try await sdk.stop()
+```
+
+## Observable State Consolidation
+
+| Old | New |
+| --- | --- |
+| `sdk.metricsBuffer` | `sdk.metrics` |
+| `vitalsProcessor.processingStatus` | `sdk.processingStatus` |
+| `vitalsProcessor.lastStatusCode` + `vitalsProcessor.statusHint` | `sdk.validationStatus?.code` + `sdk.validationStatus?.hint` |
+| `sdk.resultErrorText` | `sdk.error?.message` |
+| `vitalsProcessor.imageOutput` | `sdk.imageOutput` |
+
+## Validation Status
+
+```swift
+// Before:
+Text(vitalsProcessor.statusHint)
+```
+
+```swift
+// After:
+if let validationStatus = sdk.validationStatus {
+    showBanner(validationStatus.hint)
+
+    switch validationStatus.code {
+    case .ok:
+        break
+    case .noFaceFound, .multipleFacesFound, .faceNotCentered,
+        .tooDark, .tooBright, .chestNotVisible, .cameraTuning,
+        .frameRateTooLow, .excessiveMotion,
+        .faceTooClose, .faceTooFar, .faceTooHigh, .faceTooLow,
+        .faceNotForward:
+        break
+    default:
+        // .faceSizeOutOfRange is deprecated in favour of
+        // .faceTooClose / .faceTooFar, and new codes may be added.
+        break
+    }
+}
+```
+
+## Error Model
+
+```swift
+// Before:
+if !sdk.resultErrorText.isEmpty {
+    let message = sdk.resultErrorText
+    showError(message)
+}
+```
+
+```swift
+// After:
+if let error = sdk.error {
+    showError(error.message)
+
+    if error.retryable {
+        showRetryAction()
+    }
+}
+```
+
+## Processing Status Migration
+
+### Type Rename
+
+```swift
+// Before:
+let status: PresageProcessingStatus = vitalsProcessor.processingStatus
+
+// After:
+let status: ProcessingStatus = sdk.processingStatus
+```
+
+### Lifecycle Cases
+
+- `idle`
+- `starting`
+- `running`
+- `stopping`
+- `error`
+
+### Case Mapping
+
+| Previous case | New case |
+| ------------- | -------- |
+| `idle` | `idle` |
+| `starting` | `starting` |
+| `processing` | `running` |
+| `processed` | `idle` |
+| `error` | `error` |
+
+### Example Update
+
+```swift
+// Before:
+if vitalsProcessor.processingStatus == .idle || vitalsProcessor.processingStatus == .processed {
+    showResults()
+}
+```
+
+```swift
+// After:
+if sdk.processingStatus == .idle {
+    showResults()
+}
+```
+
+## Observable Migration
+
+`SmartSpectraSDK` and `SmartSpectraConfig` moved from `ObservableObject` + `@Published` to the Swift 5.9 `@Observation` macro. The Combine-style `$` publishers (`sdk.$metrics`, `sdk.$error`, `sdk.$processingStatus`, `sdk.$imageOutput`, `sdk.$validationStatus`, `sdk.$insight`) are gone. The properties themselves remain and now track automatically in SwiftUI views.
+
+### SwiftUI Views
+
+Drop `@ObservedObject` / `@StateObject` wrappers on `sdk`. SwiftUI re-renders when tracked properties change:
+
+```swift
+// Before:
+struct MyView: View {
+    @ObservedObject private var sdk = SmartSpectraSwiftSDK.shared
+
+    var body: some View {
+        Text("Status: \(sdk.processingStatus)")
+    }
+}
+```
+
+```swift
+// After:
+struct MyView: View {
+    private let sdk = SmartSpectraSDK.shared
+
+    var body: some View {
+        Text("Status: \(sdk.processingStatus)")
+    }
+}
+```
+
+For side effects on property change, use `.onChange(of:)` instead of `.onReceive($X)` or manual `.sink { }`:
+
+```swift
+// Before:
+.onReceive(sdk.$metricsBuffer) { buffer in
+    guard let buffer else { return }
+    appendToChart(buffer.breathing.rate)
+}
+```
+
+```swift
+// After:
+.onChange(of: sdk.metrics) { _, metrics in
+    guard let metrics else { return }
+    appendToChart(metrics.breathing.rate)
+}
+```
+
+### UIKit Consumers
+
+UIKit has no `.onChange(of:)` equivalent. Replace Combine subscriptions with `withObservationTracking`, re-armed after each change:
+
+```swift
+// Before:
+sdk.$metricsBuffer
+    .receive(on: DispatchQueue.main)
+    .sink { [weak self] buffer in
+        self?.update(buffer)
+    }
+    .store(in: &cancellables)
+```
+
+```swift
+// After:
+private func observeMetrics() {
+    withObservationTracking {
+        _ = sdk.metrics
+    } onChange: { [weak self] in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.update(self.sdk.metrics)
+            self.observeMetrics()
+        }
+    }
+}
+```
+
+A generic helper keeps multiple keypath observations tidy:
+
+```swift
+private func observeSDK<T>(
+    _ keyPath: KeyPath<SmartSpectraSDK, T>,
+    _ handler: @escaping (T) -> Void
+) {
+    withObservationTracking {
+        _ = sdk[keyPath: keyPath]
+    } onChange: { [weak self] in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            handler(self.sdk[keyPath: keyPath])
+            self.observeSDK(keyPath, handler)
+        }
+    }
+    handler(sdk[keyPath: keyPath])
+}
+
+// Usage:
+observeSDK(\.metrics) { [weak self] metrics in
+    guard let self, let metrics else { return }
+    self.update(metrics)
+}
+observeSDK(\.processingStatus) { [weak self] status in
+    self?.updateStatus(status)
+}
+```
+
+### Non-SwiftUI `@Observable` Classes
+
+View models that consume SDK state should mark themselves `@MainActor @Observable`. Combine `.sink` on `sdk.$X` inside those view models migrates to the same `withObservationTracking` re-arm pattern shown above.
+
+## Configuration Access
+
+Configuration is now reached through the SDK instance only:
+
+```swift
+// Before:
+let sdk = SmartSpectraSwiftSDK.shared
+sdk.setApiKey("YOUR_API_KEY")
+sdk.setCameraPosition(.front)
+```
+
+```swift
+// After:
+let sdk = SmartSpectraSDK.shared
+sdk.config.apiKey = "YOUR_API_KEY"
+sdk.config.requestedMetrics = SmartSpectraConfig.cardioMetrics + SmartSpectraConfig.breathingMetrics
+```
+
+Older releases did not expose public `SmartSpectraConfig` access; configuration
+was applied through methods on `SmartSpectraSwiftSDK.shared`. Current releases
+keep SDK settings on `sdk.config`, so views observe the same configuration used
+by the SDK. Choose the input separately through `useCamera` or `useCustomInput`.
+
+### Custom SDK Instances
+
+`SmartSpectraSDK` and `SmartSpectraConfig` now expose public initializers for callers that want an isolated SDK instance (for tests or advanced integrations):
+
+```swift
+let customConfig = SmartSpectraConfig()
+customConfig.apiKey = "…"
+let sdk = SmartSpectraSDK(config: customConfig)
+```
+
+Most apps should keep using `SmartSpectraSDK.shared` — it's the intended entry point, matching the `URLSession.shared` pattern.
+
+#### What multi-instance gives you today
+
+**Isolated per instance:**
+
+- `@Observable` state (`metrics`, `error`, `processingStatus`, `validationStatus`, `insight`, `imageOutput`)
+- `config` — each SDK has its own
+- SwiftUI views bound via `init(sdk:)` or `.smartSpectraSDK(_:)` render against the correct instance
+
+**Still process-global (not isolated):**
+
+- Authentication — the underlying auth handler is a singleton, so setting `apiKey` on one instance affects the auth state that every instance sees
+- Camera — only one `AVCaptureSession` can be active at a time on iOS, and it is owned process-wide
+- The preprocessing runtime — only one instance can drive an *active measurement* at a time
+
+In practice this means custom instances are useful for **tests** (isolated state per test), **side-by-side UI** (show state from two SDKs without either actively processing), or **sequential lifecycles** (stop one SDK, start another). Two simultaneous live measurements on two SDK instances is not supported yet.
+
+#### Binding a custom instance into a SwiftUI hierarchy
+
+The SDK no longer ships SwiftUI views or environment-binding helpers. Custom instances flow into your views the same way any `@Observable` does — pass them directly, or define your own environment key:
+
+```swift
+@main
+struct MyApp: App {
+    @State private var sdk = SmartSpectraSDK(config: customConfig)
+
+    var body: some Scene {
+        WindowGroup {
+            ContentView(sdk: sdk)
+        }
+    }
+}
+```
+
+For an environment-key pattern, see `samples/demo-app/UI/SDKEnvironmentKey.swift` — a tiny helper that defines `\.smartSpectraSDK` and `.smartSpectraSDK(_:)` for the moved screening views to read against. Copy it if you want the same pattern in your own app.
+
+Hosts that just use `SmartSpectraSDK.shared` need no binding at all.
+
+## SwiftUI Surface Removal
+
+The SDK no longer ships any SwiftUI views or environment helpers. Removed from the `SmartSpectra` module:
+
+- `SmartSpectraView`, `SmartSpectraButtonView`, `SmartSpectraResultView`
+- The screening overlay / plot / processing views
+- Onboarding, tutorial, legal, and web views
+- `ContinuousVitalsPlotView` and its `TraceLineView` / `VitalSection` helpers
+- `StartupRecovery` helper
+- `\.smartSpectraSDK` environment key and `.smartSpectraSDK(_:)` view modifier
+
+### What's still public
+
+- ``SmartSpectraSDK`` and ``SmartSpectraConfig`` — the data and lifecycle plane.
+- The full observable surface: `metrics`, `imageOutput`, `processingStatus`, `validationStatus`, `error`, `insight`, plus `try await sdk.start() / sdk.stop()`.
+- All proto types (`Metrics`, `Measurement`, `MeasurementWithConfidence`, etc.) and their `TimeStamped` / `appendProtoArray` extensions.
+
+### What you need to do
+
+If you used `SmartSpectraView()` as a one-line integration point, copy the reference implementation from the demo-app sample at [`samples/demo-app/UI/`](https://github.com/Presage-Security/SmartSpectra/tree/main/swift/samples/demo-app/UI) into your project. The folder mirrors the previous SDK layout (`Components/`, `Screening/`, `Legal/`, `Web/`) and wires through public-only SDK API:
+
+- `ScreeningViewModel` calls `try await sdk.start()` / `sdk.stop()` instead of the (removed) `processor.startProcessing/stopProcessing`.
+- `SDKExtensions.swift` recomputes `cardioMeasurementsEnabled` / `facialExpressionEnabled` / `edaInferenceEnabled` from the public `requestedMetrics` surface.
+- `SDKEnvironmentKey.swift` defines a sample-local `\.smartSpectraSDK` environment key + `.smartSpectraSDK(_:)` modifier — copy it if you want the same SwiftUI binding pattern.
+- `StartupRecovery` takes an explicit `videoInputEnabled` argument; the host tracks it locally rather than reading SDK config.
+- Brand color lives in `BrandColor.swift` — customize for your product theme.
+- Tutorial images load from the host app's main bundle (no `bundle: .module`); the demo-app's `Assets.xcassets/tutorial_image*.imageset` entries can be copied as-is.
+
+If you only used ``ContinuousVitalsPlotView``, the same folder includes a sample-local copy at `samples/demo-app/UI/Screening/ContinuousVitalsPlotView.swift` (with `TraceLineView.swift` and `VitalSection.swift`). Drop the three files into your project, add the `SDKExtensions.swift` derived flags, and the view works unchanged.
+
+```swift
+// Before:
+import SwiftUI
+import SmartSpectra
+
+struct ContentView: View {
+    private let sdk = SmartSpectraSDK.shared
+
+    init() { sdk.config.apiKey = "…" }
+
+    var body: some View {
+        SmartSpectraView()
+    }
+}
+```
+
+```swift
+// After (option 1 — keep the screening flow by copying the sample):
+import SwiftUI
+import SmartSpectra
+
+struct ContentView: View {
+    private let sdk = SmartSpectraSDK.shared
+
+    init() { sdk.config.apiKey = "…" }
+
+    var body: some View {
+        // SmartSpectraView is now a sample-local view copied from
+        // samples/demo-app/UI/Components/SmartSpectraView.swift.
+        SmartSpectraView()
+    }
+}
+```
+
+```swift
+// After (option 2 — bring your own UI, drive the SDK directly):
+import SwiftUI
+import SmartSpectra
+
+struct ContentView: View {
+    private let sdk = SmartSpectraSDK.shared
+
+    init() { sdk.config.apiKey = "…" }
+
+    var body: some View {
+        VStack {
+            if let image = sdk.imageOutput {
+                Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
+            }
+            Text("Status: \(String(describing: sdk.processingStatus))")
+            Button(sdk.processingStatus == .running ? "Stop" : "Start") {
+                Task {
+                    if sdk.processingStatus == .running {
+                        try? await sdk.stop()
+                    } else {
+                        try? await sdk.start()
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+### Why this changed
+
+The shipped UI embedded opinionated decisions every customer wanted to override (full-screen vs sheet presentation, onboarding policy, legal-document hosting URL, theming, plot styling). Maintaining that as stable SDK API forced every customer to fight the same set of defaults. Moving every SwiftUI piece into a sample lets each project fork the part it cares about while the SDK owns only the data and lifecycle plane.
+
+## `@MainActor` Isolation
+
+`SmartSpectraSDK` and `SmartSpectraConfig` are now `@MainActor`-isolated. Access from non-main contexts requires the standard hop:
+
+```swift
+// From a background task:
+await MainActor.run {
+    sdk.config.apiKey = "…"
+}
+```
+
+SwiftUI `View` bodies, UIKit `UIViewController` methods, and `XCTestCase`-subclass methods marked `@MainActor` access the SDK directly without extra ceremony. Unit tests that mutate SDK or config state should annotate the test class with `@MainActor`.
+
+## Metric bundles moved to `SmartSpectraConfig`
+
+Older Swift releases did not expose public requested-metric bundles. Current
+releases expose public `nonisolated static let` bundles on
+`SmartSpectraConfig`, including `breathingMetrics`, `cardioMetrics`,
+`faceMetrics`, and `edaMetrics`. The namespace and `Metrics` suffix match the
+Android SDK's `SmartSpectraConfig.breathingMetrics` companion field and the
+C++ SDK's `SmartSpectraConfig::CardioMetrics()` static method.
+
+```swift
+// Before
+// No public requested-metric selection API.
+
+// After
+sdk.config.requestedMetrics =
+    SmartSpectraConfig.breathingMetrics + SmartSpectraConfig.cardioMetrics
+```
+
+Current releases also expose an EDA Proxy bundle:
+
+```swift
+sdk.config.requestedMetrics =
+    SmartSpectraConfig.breathingMetrics + SmartSpectraConfig.edaMetrics
+```

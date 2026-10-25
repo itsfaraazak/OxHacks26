@@ -1,0 +1,39 @@
+# Frontend (Next.js)
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.env*
+!.env.example
+.DS_Store
+test-results/
+playwright-report/
+
+# Mirrors archive/oxhack26-prototype/.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+*.env
+.venv/
+env/
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime / Logs
+*focus_log.json
+*test_output.json
+presage_vitals.json

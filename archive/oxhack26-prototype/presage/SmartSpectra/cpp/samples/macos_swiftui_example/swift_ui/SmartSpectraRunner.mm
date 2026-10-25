@@ -1,0 +1,395 @@
+#import "SmartSpectraRunner.h"
+
+#include "PreviewImage.h"
+
+#include <iomanip>
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include <smartspectra/smartspectra.h>
+#include <smartspectra/version.hpp>
+
+namespace ss = presage::smartspectra;
+
+namespace {
+
+std::string FormatFloat(float value, int precision = 1) {
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(precision) << value;
+    return out.str();
+}
+
+template <typename Getter>
+void AddLatestMeasurementLine(std::vector<std::string>& lines,
+                              const std::string& label,
+                              int count,
+                              const Getter& getter,
+                              const std::string& unit,
+                              int precision = 1) {
+    if (count == 0) {
+        return;
+    }
+
+    const auto& measurement = getter(count - 1);
+    lines.push_back(label + ": " + FormatFloat(measurement.value(), precision) + unit);
+}
+
+template <typename Getter>
+void AddLatestMeasurementWithConfidenceLine(std::vector<std::string>& lines,
+                                            const std::string& label,
+                                            int count,
+                                            const Getter& getter,
+                                            const std::string& unit) {
+    if (count == 0) {
+        return;
+    }
+
+    const auto& measurement = getter(count - 1);
+    lines.push_back(label + ": " + FormatFloat(measurement.value()) + unit +
+                    " (" + FormatFloat(measurement.confidence(), 0) + "%)");
+}
+
+NSArray<NSString *> *NSArrayFromLines(const std::vector<std::string>& lines) {
+    NSMutableArray<NSString *> *array = [NSMutableArray arrayWithCapacity:lines.size()];
+    for (const auto& line : lines) {
+        [array addObject:[NSString stringWithUTF8String:line.c_str()]];
+    }
+    return array;
+}
+
+NSArray<NSNumber *> *BreathingTraceFromMetrics(const ss::Metrics& metrics) {
+    NSMutableArray<NSNumber *> *array = [NSMutableArray array];
+    if (!metrics.has_breathing()) {
+        return array;
+    }
+
+    const auto& breathing = metrics.breathing();
+    for (int index = 0; index < breathing.upper_trace_size(); ++index) {
+        [array addObject:@(breathing.upper_trace(index).value())];
+    }
+    return array;
+}
+
+NSArray<NSNumber *> *ArterialPressureTraceFromMetrics(const ss::Metrics& metrics) {
+    NSMutableArray<NSNumber *> *array = [NSMutableArray array];
+    if (!metrics.has_cardio()) {
+        return array;
+    }
+
+    const auto& cardio = metrics.cardio();
+    for (int index = 0; index < cardio.arterial_pressure_trace_size(); ++index) {
+        [array addObject:@(cardio.arterial_pressure_trace(index).value())];
+    }
+    return array;
+}
+
+NSArray<NSNumber *> *EdaTraceFromMetrics(const ss::Metrics& metrics) {
+    NSMutableArray<NSNumber *> *array = [NSMutableArray array];
+    if (!metrics.has_eda()) {
+        return array;
+    }
+
+    const auto& eda = metrics.eda();
+    for (int index = 0; index < eda.trace_size(); ++index) {
+        [array addObject:@(eda.trace(index).value())];
+    }
+    return array;
+}
+
+std::vector<std::string> BuildMetricLines(const ss::Metrics& metrics) {
+    std::vector<std::string> lines;
+
+    if (metrics.has_breathing()) {
+        const auto& breathing = metrics.breathing();
+        AddLatestMeasurementWithConfidenceLine(
+            lines,
+            "Breathing rate",
+            breathing.rate_size(),
+            [&breathing](int index) -> const auto& { return breathing.rate(index); },
+            " bpm");
+        AddLatestMeasurementLine(
+            lines,
+            "Amplitude",
+            breathing.amplitude_size(),
+            [&breathing](int index) -> const auto& { return breathing.amplitude(index); },
+            "");
+        AddLatestMeasurementLine(
+            lines,
+            "Line length",
+            breathing.respiratory_line_length_size(),
+            [&breathing](int index) -> const auto& {
+                return breathing.respiratory_line_length(index);
+            },
+            "");
+        AddLatestMeasurementLine(
+            lines,
+            "Inhale/exhale",
+            breathing.inhale_exhale_ratio_size(),
+            [&breathing](int index) -> const auto& {
+                return breathing.inhale_exhale_ratio(index);
+            },
+            "");
+    }
+
+    if (metrics.has_cardio()) {
+        const auto& cardio = metrics.cardio();
+        AddLatestMeasurementWithConfidenceLine(
+            lines,
+            "Pulse rate",
+            cardio.pulse_rate_size(),
+            [&cardio](int index) -> const auto& { return cardio.pulse_rate(index); },
+            " bpm");
+    }
+
+    if (metrics.has_eda()) {
+        const auto& eda = metrics.eda();
+        AddLatestMeasurementLine(
+            lines,
+            "EDA Proxy level",
+            eda.trace_size(),
+            [&eda](int index) -> const auto& { return eda.trace(index); },
+            "",
+            3);
+    }
+
+    return lines;
+}
+
+void DispatchFailure(__weak SmartSpectraRunner *weakRunner, NSString *message) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        SmartSpectraRunner *runner = weakRunner;
+        [runner.delegate smartSpectraRunnerDidFail:message];
+    });
+}
+
+void DispatchDiagnostics(__weak SmartSpectraRunner *weakRunner, NSString *diagnostics) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        SmartSpectraRunner *runner = weakRunner;
+        [runner.delegate smartSpectraRunnerDidUpdateDiagnostics:diagnostics];
+    });
+}
+
+}  // namespace
+
+@interface SmartSpectraCamera ()
+@property(nonatomic, copy, readwrite) NSString *cameraID;
+@property(nonatomic, copy, readwrite, nullable) NSString *name;
+@property(nonatomic, readwrite) SmartSpectraCameraFacing facing;
+@property(nonatomic, readwrite) SmartSpectraCameraLensType lensType;
+@end
+
+@implementation SmartSpectraCamera
+@end
+
+@interface SmartSpectraRunner ()
+@property(nonatomic, assign) BOOL running;
+@end
+
+@implementation SmartSpectraRunner {
+    std::mutex mutex_;
+    std::unique_ptr<ss::SmartSpectra> spectra_;
+    std::atomic<long long> frame_count_;
+    std::atomic<long long> frame_sent_count_;
+    std::atomic<long long> frame_blocked_count_;
+}
+
++ (NSString *)sdkVersion {
+    return [NSString stringWithUTF8String:SMART_SPECTRA_VERSION_STRING];
+}
+
++ (nullable NSArray<SmartSpectraCamera *> *)availableCamerasWithError:(NSError **)error {
+    std::vector<ss::CameraInfo> cameras;
+    if (auto result = ss::SmartSpectra::AvailableCameras(cameras); !result.ok()) {
+        if (error) {
+            *error = [NSError errorWithDomain:@"SmartSpectraCameraDiscovery"
+                                        code:static_cast<NSInteger>(result.code)
+                                    userInfo:@{NSLocalizedDescriptionKey:
+                [NSString stringWithUTF8String:result.FullMessage().c_str()]}];
+        }
+        return nil;
+    }
+    NSMutableArray<SmartSpectraCamera *> *result = [NSMutableArray arrayWithCapacity:cameras.size()];
+    for (const auto& camera : cameras) {
+        SmartSpectraCamera *info = [[SmartSpectraCamera alloc] init];
+        info.cameraID = [NSString stringWithUTF8String:camera.id.c_str()];
+        info.name = camera.name ? [NSString stringWithUTF8String:camera.name->c_str()] : nil;
+        switch (camera.facing) {
+            case ss::CameraFacing::kFront: info.facing = SmartSpectraCameraFacingFront; break;
+            case ss::CameraFacing::kBack: info.facing = SmartSpectraCameraFacingBack; break;
+            case ss::CameraFacing::kUnknown: info.facing = SmartSpectraCameraFacingUnknown; break;
+        }
+        switch (camera.lens_type) {
+            case ss::CameraLensType::kWideAngle: info.lensType = SmartSpectraCameraLensTypeWideAngle; break;
+            case ss::CameraLensType::kUltraWide: info.lensType = SmartSpectraCameraLensTypeUltraWide; break;
+            case ss::CameraLensType::kTelephoto: info.lensType = SmartSpectraCameraLensTypeTelephoto; break;
+            case ss::CameraLensType::kUnknown: info.lensType = SmartSpectraCameraLensTypeUnknown; break;
+        }
+        [result addObject:info];
+    }
+    return result;
+}
+
+- (nullable NSString *)startWithAPIKey:(NSString *)apiKey cameraID:(nullable NSString *)cameraID {
+    if (self.running) {
+        return nil;
+    }
+
+    if (apiKey.length == 0) {
+        return @"Missing API key.";
+    }
+
+    frame_count_ = 0;
+    frame_sent_count_ = 0;
+    frame_blocked_count_ = 0;
+
+    ss::SmartSpectraConfig config;
+    config.api_key = std::string(apiKey.UTF8String);
+    config.requested_metrics = ss::SmartSpectraConfig::DefaultSupportedMetrics();
+    config.AddMetrics(ss::SmartSpectraConfig::CardioMetrics());
+    config.AddMetrics(ss::SmartSpectraConfig::EdaMetrics());
+
+    auto spectra = std::make_unique<ss::SmartSpectra>(std::move(config));
+    __weak SmartSpectraRunner *weakSelf = self;
+
+    spectra->SetOnProcessingStatusChanged([weakSelf](ss::ProcessingStatus status) {
+        NSString *processing = [NSString stringWithUTF8String:ss::ToString(status)];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            SmartSpectraRunner *runner = weakSelf;
+            [runner.delegate smartSpectraRunnerDidUpdateStatus:processing validation:@""];
+        });
+    });
+
+    spectra->SetOnValidationStatusChanged(
+        [weakSelf](const ss::ValidationStatus& status, int64_t /*timestamp_us*/) {
+            std::string status_text = ss::ToString(status);
+
+            NSString *validation = [NSString stringWithUTF8String:status_text.c_str()];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                SmartSpectraRunner *runner = weakSelf;
+                [runner.delegate smartSpectraRunnerDidUpdateStatus:@"" validation:validation];
+            });
+        });
+
+    spectra->SetOnMetrics([weakSelf](const ss::Metrics& metrics, int64_t timestamp_us) {
+        std::vector<std::string> metric_lines = BuildMetricLines(metrics);
+        NSArray<NSNumber *> *breathing_trace = BreathingTraceFromMetrics(metrics);
+        NSArray<NSNumber *> *arterial_pressure_trace = ArterialPressureTraceFromMetrics(metrics);
+        NSArray<NSNumber *> *eda_trace = EdaTraceFromMetrics(metrics);
+        NSArray<NSString *> *lines = NSArrayFromLines(metric_lines);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            SmartSpectraRunner *runner = weakSelf;
+            [runner.delegate smartSpectraRunnerDidUpdateMetrics:lines timestampUs:timestamp_us];
+            [runner.delegate smartSpectraRunnerDidUpdateBreathingTrace:breathing_trace
+                                                 arterialPressureTrace:arterial_pressure_trace
+                                                              edaTrace:eda_trace
+                                                           timestampUs:timestamp_us];
+        });
+    });
+
+    spectra->SetOnVideoOutput([weakSelf](const ss::FrameBuffer& frame, int64_t /*timestamp_us*/) {
+        SmartSpectraRunner *strongSelf = weakSelf;
+        if (strongSelf == nil) {
+            return;
+        }
+
+        const long long frame_count = ++strongSelf->frame_count_;
+        if (frame_count % 2 != 0) {
+            return;
+        }
+
+        CGImageRef preview = CreatePreviewImage(frame);
+        if (preview == nullptr) {
+            return;
+        }
+        NSImage *image = [[NSImage alloc] initWithCGImage:preview
+                                                   size:NSMakeSize(frame.width, frame.height)];
+        CGImageRelease(preview);
+        if (image == nil) {
+            return;
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            SmartSpectraRunner *runner = weakSelf;
+            [runner.delegate smartSpectraRunnerDidUpdateFrame:image];
+        });
+
+        if (frame_count % 30 == 0) {
+            NSString *diagnostics = [NSString stringWithFormat:@"Frames: %lld | accepted: %lld | blocked: %lld",
+                                     frame_count,
+                                     strongSelf->frame_sent_count_.load(),
+                                     strongSelf->frame_blocked_count_.load()];
+            DispatchDiagnostics(weakSelf, diagnostics);
+        }
+    });
+
+    spectra->SetOnFrameSentThrough([weakSelf](bool sent_through, int64_t /*timestamp_us*/) {
+        SmartSpectraRunner *strongSelf = weakSelf;
+        if (strongSelf == nil) {
+            return;
+        }
+
+        if (sent_through) {
+            ++strongSelf->frame_sent_count_;
+        } else {
+            ++strongSelf->frame_blocked_count_;
+        }
+
+        const long long total = strongSelf->frame_sent_count_.load() +
+                                strongSelf->frame_blocked_count_.load();
+        if (total % 30 == 0) {
+            NSString *diagnostics = [NSString stringWithFormat:@"Frames: %lld | accepted: %lld | blocked: %lld",
+                                     strongSelf->frame_count_.load(),
+                                     strongSelf->frame_sent_count_.load(),
+                                     strongSelf->frame_blocked_count_.load()];
+            DispatchDiagnostics(weakSelf, diagnostics);
+        }
+    });
+
+    spectra->SetOnError([weakSelf](const ss::SmartSpectraError& error) {
+        std::string message = error.FullMessage();
+        DispatchFailure(weakSelf, [NSString stringWithUTF8String:message.c_str()]);
+    });
+
+    const auto selection = cameraID == nil
+        ? ss::CameraSelection::Default()
+        : ss::CameraSelection::ById(std::string(cameraID.UTF8String));
+    if (auto error = spectra->UseCamera(selection).SetResolution(1280, 720).SetFps(30).Build();
+        !error.ok()) {
+        return [NSString stringWithUTF8String:error.FullMessage().c_str()];
+    }
+
+    if (auto error = spectra->Start(); !error.ok()) {
+        return [NSString stringWithUTF8String:error.FullMessage().c_str()];
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        spectra_ = std::move(spectra);
+    }
+
+    self.running = YES;
+    return nil;
+}
+
+- (void)stop {
+    std::unique_ptr<ss::SmartSpectra> spectra;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        spectra = std::move(spectra_);
+    }
+
+    if (spectra) {
+        (void)spectra->Stop();
+    }
+    self.running = NO;
+}
+
+- (void)dealloc {
+    [self stop];
+}
+
+@end

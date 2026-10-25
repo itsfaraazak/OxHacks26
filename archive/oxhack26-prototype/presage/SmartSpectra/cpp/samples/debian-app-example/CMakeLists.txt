@@ -1,0 +1,234 @@
+# Copyright (C) 2026 Presage Technologies, Inc.
+#
+# SPDX-License-Identifier: LicenseRef-Proprietary
+
+# debian-app-example: standalone SmartSpectra C++ SDK redistribution example.
+#
+# This CMakeLists is built OUT-OF-TREE against an extracted SmartSpectra Linux
+# SDK release tarball
+# (`smartspectra-sdk-<version>-linux-<codename>-<arch>.tar.gz`, for example
+# `smartspectra-sdk-<version>-linux-jammy-amd64.tar.gz`). It consumes the SDK
+# strictly through find_package(SmartSpectra) and is NOT added to
+# smartspectra/cpp/samples/CMakeLists.txt's add_subdirectory(...) aggregate.
+#
+# Build (after extracting the SDK tarball to /tmp/sdk):
+#   cmake -S . -B /tmp/build -DCMAKE_PREFIX_PATH=/tmp/sdk -DCMAKE_BUILD_TYPE=Release
+#   cmake --build /tmp/build -j$(nproc)
+#   cd /tmp/build && cpack -G DEB
+
+cmake_minimum_required(VERSION 3.22.1)
+project(debian-app-example VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+find_package(SmartSpectra REQUIRED)
+
+add_executable(debian-app-example main.cc)
+target_link_libraries(debian-app-example PRIVATE SmartSpectra::SDK)
+
+# Resolve the bundled runtime lib (libsmartspectra.so) relative to the binary
+# at install time: /opt/debian-app-example/bin/<exe> -> ../lib.
+# INSTALL_RPATH_USE_LINK_PATH=FALSE prevents the link-time RPATH from polluting
+# the final RUNPATH; the resulting DT_RUNPATH is exactly `$ORIGIN/../lib`.
+set_target_properties(debian-app-example PROPERTIES
+    INSTALL_RPATH "\$ORIGIN/../lib"
+    INSTALL_RPATH_USE_LINK_PATH FALSE
+    BUILD_WITH_INSTALL_RPATH FALSE
+)
+
+# ======================================================================
+# CPack DEB install layout
+# ======================================================================
+#
+# App-private install prefix per FHS 3.0 §3.12. All files land under
+# /opt/debian-app-example/ except the postinst-written ldconfig fragment
+# (group 3). Paths are absolute so the .deb's layout is unconditionally
+# /opt/debian-app-example/... regardless of the build's CMAKE_INSTALL_PREFIX.
+
+set(DAE_INSTALL_PREFIX "/opt/debian-app-example")
+set(DAE_BIN_DIR        "${DAE_INSTALL_PREFIX}/bin")
+set(DAE_LIB_DIR        "${DAE_INSTALL_PREFIX}/lib")
+set(DAE_SHARE_DIR      "${DAE_INSTALL_PREFIX}/share/smartspectra")
+
+install(TARGETS debian-app-example DESTINATION "${DAE_BIN_DIR}")
+
+# Resolve bundled-lib + model source paths from SmartSpectraConfig's exported
+# CACHE variables. SMARTSPECTRA_LIB_DIRECTORY and SMARTSPECTRA_GRAPH_DIRECTORY
+# (cf. edge/cmake/templates/SmartSpectraConfig.cmake.in) are the stable
+# contract — they persist in user scope after find_package() returns.
+#
+# Do NOT use PACKAGE_PREFIX_DIR here: CMake 4.x no longer leaks that variable
+# to the caller after the config script finishes (under CMake 3.x it happened
+# to persist, but that was never the documented contract). Do NOT walk
+# ${SmartSpectra_DIR}/../../... arithmetic either — three levels deep is
+# brittle against install-layout changes.
+set(_dae_sdk_lib_dir "${SMARTSPECTRA_LIB_DIRECTORY}")
+
+# Bundle libsmartspectra.so. The SDK ships it in <sdk>/lib/.
+install(
+    FILES "${_dae_sdk_lib_dir}/libsmartspectra.so"
+    DESTINATION "${DAE_LIB_DIR}"
+)
+
+# Bundle the SDK's private runtime directory, <sdk>/lib/smartspectra/, beside
+# the .so. On Linux it carries the SDK's own LGPL FFmpeg build (plus its
+# license texts), which libsmartspectra.so resolves via its
+# $ORIGIN/smartspectra RUNPATH — searched before the system's ldconfig cache,
+# so the SDK-provided LGPL libraries are used even when a distro FFmpeg with
+# the same sonames is installed. Skipping this leaves libsmartspectra.so
+# unable to load (libavcodec.so.NN not found) on systems without a matching
+# distro FFmpeg. OPTIONAL: the directory is absent on SDK flavors that resolve
+# FFmpeg from the OS instead of bundling it.
+install(
+    DIRECTORY "${_dae_sdk_lib_dir}/smartspectra/"
+    DESTINATION "${DAE_LIB_DIR}/smartspectra"
+    USE_SOURCE_PERMISSIONS
+    OPTIONAL
+)
+
+# Bundle the SDK's graph/ tree (models + computation graphs). Source layout:
+# <sdk>/share/graph/{models,...}; bundled-into layout:
+# /opt/debian-app-example/share/smartspectra/graph/{models,...}. The
+# resource_root_dir written by the manifest (below) points at the parent of
+# graph/, matching how SmartSpectra's resource resolver works (it prepends
+# resource_root_dir to relative paths like "graph/models/face_detection.tflite").
+get_filename_component(_dae_sdk_share_dir "${SMARTSPECTRA_GRAPH_DIRECTORY}" DIRECTORY)
+install(
+    DIRECTORY "${_dae_sdk_share_dir}/graph"
+    DESTINATION "${DAE_SHARE_DIR}"
+)
+
+# Write smartspectra_manifest.json at install time. Lives next to
+# libsmartspectra.so under /opt/debian-app-example/lib/ — the SDK's
+# resource lookup reads the manifest from libsmartspectra.so's own
+# directory. Written at install time (not build time) so the recorded
+# prefix matches the .deb's actual install location, not the build prefix.
+# DAE_SHARE_DIR is a Linux absolute path under /opt/, so no JSON-escaping
+# of backslashes or double-quotes is required.
+install(CODE "
+    file(WRITE \"\$ENV{DESTDIR}${DAE_LIB_DIR}/smartspectra_manifest.json\"
+         \"{\\n  \\\"resource_root_dir\\\": \\\"${DAE_SHARE_DIR}\\\"\\n}\\n\")
+")
+
+# ======================================================================
+# CPack DEB generator
+# ======================================================================
+
+# Detect the Debian-family codename so the .deb's revision suffix matches
+# the SDK's own per-codename mechanism (cf.
+# edge/cmake/extensions/SmartSpectra_packaging.cmake:98-103).
+# Inline detection here intentionally — including the SDK's distro_name
+# helper would violate the out-of-tree constraint (D8 in the change folder's
+# design.md).
+if(NOT EXISTS "/etc/os-release")
+    message(FATAL_ERROR
+        "debian-app-example: cannot detect distro codename — /etc/os-release "
+        "is missing. CPack DEB packaging is supported only on Debian-family "
+        "hosts.")
+endif()
+file(READ "/etc/os-release" _dae_os_release)
+string(REGEX MATCH "VERSION_CODENAME=([a-z]+)" _dae_codename_match "${_dae_os_release}")
+if(NOT CMAKE_MATCH_1)
+    message(FATAL_ERROR
+        "debian-app-example: failed to parse VERSION_CODENAME from "
+        "/etc/os-release — confirm the build host is Debian-family "
+        "(Ubuntu / Debian / Mint).")
+endif()
+set(DAE_DISTRO_CODENAME "${CMAKE_MATCH_1}")
+
+set(CPACK_GENERATOR "DEB")
+set(CPACK_PACKAGE_NAME "debian-app-example")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_DEBIAN_PACKAGE_RELEASE "${DAE_DISTRO_CODENAME}1")
+# Resolve the Debian arch from the host (amd64, arm64, ...) so the produced
+# .deb is tagged for the build machine, not hardcoded to amd64.
+find_program(DAE_DPKG_EXECUTABLE dpkg)
+if(NOT DAE_DPKG_EXECUTABLE)
+    message(FATAL_ERROR
+        "debian-app-example: dpkg not found — CPack DEB packaging requires "
+        "a Debian-family host.")
+endif()
+execute_process(
+    COMMAND "${DAE_DPKG_EXECUTABLE}" --print-architecture
+    OUTPUT_VARIABLE CPACK_DEBIAN_PACKAGE_ARCHITECTURE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _dae_dpkg_arch_rc)
+if(NOT _dae_dpkg_arch_rc EQUAL 0 OR CPACK_DEBIAN_PACKAGE_ARCHITECTURE STREQUAL "")
+    message(FATAL_ERROR
+        "debian-app-example: \`dpkg --print-architecture\` failed (rc="
+        "${_dae_dpkg_arch_rc}); cannot resolve CPACK_DEBIAN_PACKAGE_ARCHITECTURE.")
+endif()
+set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+set(CPACK_PACKAGING_INSTALL_PREFIX "/")
+set(CPACK_SET_DESTDIR ON)
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER
+    "Presage Technologies <support@presagetech.com>")
+set(CPACK_DEBIAN_PACKAGE_DESCRIPTION
+    "Standalone SmartSpectra C++ SDK redistribution example.\n\
+ Demonstrates the validated Linux redistribution path: consume the\n\
+ published SmartSpectra release tarball via find_package(SmartSpectra),\n\
+ privately bundle the runtime, and ship a .deb that installs on stock\n\
+ Ubuntu without a Presage apt source.")
+set(CPACK_DEBIAN_PACKAGE_SECTION "misc")
+set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+
+# Depends: mirror the SDK's own per-codename Depends list by reading it from
+# the SmartSpectraPackageManifest.json the SDK ships under
+# <sdk>/share/smartspectra/package/. This keeps the example's apt-resolved
+# transitive tail mechanically in sync with what the SDK was built against —
+# a hard-coded literal would silently rot when the SDK adds / drops a dep.
+# The manifest path lives one directory above SMARTSPECTRA_GRAPH_DIRECTORY
+# (cf. edge/cmake/templates/SmartSpectraConfig.cmake.in:5, which exports
+# SMARTSPECTRA_GRAPH_DIRECTORY = ${PACKAGE_PREFIX_DIR}/share/smartspectra/graph).
+set(_dae_manifest_path
+    "${_dae_sdk_share_dir}/package/SmartSpectraPackageManifest.json")
+if(NOT EXISTS "${_dae_manifest_path}")
+    message(FATAL_ERROR
+        "debian-app-example: SmartSpectraPackageManifest.json not found at "
+        "${_dae_manifest_path}. The example's Depends list is sourced from "
+        "the SDK's own package manifest; a missing manifest means the SDK "
+        "tarball is malformed or this is an older SDK that pre-dates the "
+        "manifest-in-tarball contract. Update the SDK or escalate per R1 "
+        "in the changeset's design.md.")
+endif()
+file(READ "${_dae_manifest_path}" _dae_manifest_json)
+string(JSON _dae_debian_depends GET "${_dae_manifest_json}" debian_depends)
+if(NOT _dae_debian_depends)
+    message(FATAL_ERROR
+        "debian-app-example: SmartSpectraPackageManifest.json at "
+        "${_dae_manifest_path} reports an empty debian_depends field — "
+        "this would produce a .deb that installs but fails to load "
+        "libsmartspectra.so on a stock container. Refusing to package.")
+endif()
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "${_dae_debian_depends}")
+
+# Maintainer scripts: postinst writes /etc/ld.so.conf.d/debian-app-example.conf
+# and runs ldconfig so libsmartspectra.so (bundled under /opt/debian-app-example/lib,
+# which is not on the default loader path) is discoverable at load time. postrm
+# removes the conf and re-runs ldconfig.
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/postinst.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/postinst"
+    @ONLY
+    FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+                     GROUP_READ GROUP_EXECUTE
+                     WORLD_READ WORLD_EXECUTE
+)
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/postrm.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/postrm"
+    @ONLY
+    FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+                     GROUP_READ GROUP_EXECUTE
+                     WORLD_READ WORLD_EXECUTE
+)
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+    "${CMAKE_CURRENT_BINARY_DIR}/postinst"
+    "${CMAKE_CURRENT_BINARY_DIR}/postrm"
+)
+
+include(CPack)
+
+# Group 4 (Depends-from-manifest) extends this file in the next commit.
