@@ -91,17 +91,19 @@ void tickServo(fido::Mode mode, bool enabled) {
   uint32_t now = millis();
   if (now - lastTick < 20) return;
   lastTick = now;
-  int amplitude = 0, period = 1400;
+  int amplitude = 0, period = 1100;
   if (enabled) {
     switch (mode) {
-      case fido::Mode::BeckonDock: amplitude = 20; period = 1600; break;
+      case fido::Mode::Sleep:
+        amplitude = now % 7000 < 4200 ? 28 : 0; period = 1000; break;
+      case fido::Mode::BeckonDock: amplitude = 35; period = 900; break;
       case fido::Mode::Watch:
-        amplitude = now % 12000 < 1800 ? 10 : 0;
+        amplitude = now % 8000 < 2200 ? 18 : 0;
         break;
-      case fido::Mode::Nudge: amplitude = 25; period = 900; break;
-      case fido::Mode::Bark: amplitude = 25; period = 700; break;
-      case fido::Mode::Run: amplitude = 20; period = 1000; break;
-      case fido::Mode::Celebrate: amplitude = 40; period = 900; break;
+      case fido::Mode::Nudge: amplitude = 35; period = 700; break;
+      case fido::Mode::Bark: amplitude = 35; period = 600; break;
+      case fido::Mode::Run: amplitude = 30; period = 800; break;
+      case fido::Mode::Celebrate: amplitude = 45; period = 700; break;
       default: break;
     }
   }
@@ -109,8 +111,8 @@ void tickServo(fido::Mode mode, bool enabled) {
   int triangle = phase < period / 2 ? phase * 200 / period - 50 :
                                                 150 - phase * 200 / period;
   int target = 90 + triangle * amplitude / 50;
-  // Two degrees per 20ms: bounded motion without delays or random jumps.
-  position += constrain(target - position, -2, 2);
+  // Three degrees per 20ms; still bounded to 45..135 degrees.
+  position += constrain(target - position, -3, 3);
   unsigned long pulse = map(position, 0, 180, 1000, 2000);
   ledcWrite(4, pulse * 65535UL / 20000UL);
 }

@@ -53,7 +53,8 @@ MotorCommand MotorSafety::gate(uint32_t now_ms, MotorCommand intent, StopReason*
     reason = StopReason::HttpErrors;
   } else if (!motion_enabled_) {
     reason = StopReason::MotionDisabled;
-  } else if (mode_ != Mode::Run && mode_ != Mode::Nudge && mode_ != Mode::Bark) {
+  } else if (mode_ != Mode::Run && mode_ != Mode::Nudge && mode_ != Mode::Bark &&
+             mode_ != Mode::Sleep && mode_ != Mode::BeckonDock && mode_ != Mode::Watch) {
     reason = StopReason::ModeStill;
   } else if (mode_ == Mode::Run && now_ms - mode_since_ >= cfg_.max_escape_ms) {
     reason = StopReason::EscapeTimeout;

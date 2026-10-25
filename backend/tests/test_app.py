@@ -112,6 +112,12 @@ def test_presage_permission_tracks_active_phases_only(client, clock):
     assert permission() is None
 
 
+def test_robot_ambient_audio_obeys_global_mute(client):
+    assert client.get("/api/robot/command").json["voice_enabled"] is True
+    client.patch("/api/settings", json={"voice_enabled": False})
+    assert client.post("/api/robot/events", json={"event": "heartbeat"}).json["voice_enabled"] is False
+
+
 def test_errors_distinguish_bad_input_from_wrong_state(client) -> None:
     assert client.post("/api/session", json={"task": "", "duration_minutes": 25}).status_code == 400
     assert client.post("/api/session", data="not json").status_code == 400

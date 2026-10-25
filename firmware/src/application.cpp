@@ -46,7 +46,10 @@ Console console(nfc, safety, backend);
 
 uint32_t lastStatus = 0;
 bool caughtPending = false;
+bool dockPending = false;
 bool centreRequested = false;
+uint32_t lastPresenceSound = 0;
+uint32_t lastSpeechSeq = 0;
 
 }  // namespace
 
@@ -60,7 +63,7 @@ void fidoSetup() {
                 MAX_SPEED_PERCENT, MAX_ESCAPE_MS);
 
   display.begin();
-  display.show("Fido booting", "");
+  display.show("WAITING\nFOR APP", "");
   nfc.begin();
   hardware::begin();
   provisioning::begin();
@@ -94,8 +97,10 @@ void fidoLoop() {
   bool valid;
   fido::Command cmd = backend.latest(valid);
   if (caughtPending && valid && cmd.mode != fido::Mode::Run) caughtPending = false;
+  if (dockPending && valid && cmd.mode != fido::Mode::BeckonDock) dockPending = false;
   if (hardware::buttonPressed()) {
     Serial.println("[button] clicked");
+    motors.stop(); // Physical stop works in every mode, even with a stale backend.
     if (valid && (cmd.mode == fido::Mode::Run || millis() - backend.lastOkMs() < kWatchdogMs)) {
       NfcEvent event = cmd.mode == fido::Mode::BeckonDock ? NfcEvent::Docked :
                        cmd.mode == fido::Mode::Run ? NfcEvent::Caught : NfcEvent::None;
@@ -103,30 +108,49 @@ void fidoLoop() {
         caughtPending = true;
         motors.stop(); // Immediate local stop, even before server acknowledges the catch.
       }
+      if (event == NfcEvent::Docked) dockPending = true;
       if (event != NfcEvent::None && !backend.sendEvent(event))
         Serial.println("[button] event queue full; click again");
-      if (event == NfcEvent::None) Serial.println("[button] no action in this mode");
+      if (event == NfcEvent::None) {
+        safety.setEstop(true);
+        Serial.println("[button] stop latched; serial r releases");
+      }
     } else {
-      Serial.println("[button] backend stale; ignored");
+      safety.setEstop(true);
+      Serial.println("[button] backend stale; stop latched (r releases)");
     }
   }
   if (!centreRequested && now > 10000) {
-    // Gives time to reconnect GPIO12 after boot. Servo stays centred thereafter.
+    // Gives time to reconnect GPIO12 after boot, before bounded gestures start.
     hardware::centreServo();
     centreRequested = true;
     Serial.println("[servo] centre signal active on GPIO12");
   }
   if (centreRequested)
-    hardware::tickServo(cmd.mode, valid && !caughtPending && !safety.estop() &&
+    hardware::tickServo(cmd.mode, valid && !caughtPending && !dockPending && !safety.estop() &&
                         millis() - backend.lastOkMs() < kWatchdogMs &&
                         WiFi.softAPgetStationNum() == 0);
-  if (caughtPending || WiFi.softAPgetStationNum() > 0) {
+  if (caughtPending || dockPending || WiFi.softAPgetStationNum() > 0) {
     motors.stop();
   } else {
     controller.update(now, cmd.task, hardware::rangeFresh(), hardware::rangeCm(),
                       hardware::rangeSampleMs());
   }
   audio::tick(now);
+  if (cmd.speech.present && cmd.speech.seq != lastSpeechSeq) {
+    lastSpeechSeq = cmd.speech.seq;
+    lastPresenceSound = now; // Give backend cues priority and room to finish.
+  }
+  uint32_t soundInterval = cmd.mode == fido::Mode::Watch ? 60000 : 22000;
+  bool ambientMode = cmd.mode == fido::Mode::Sleep || cmd.mode == fido::Mode::BeckonDock ||
+                     cmd.mode == fido::Mode::Watch || cmd.mode == fido::Mode::Celebrate;
+  if (ambientMode && valid && cmd.voice_enabled && !safety.estop() &&
+      !caughtPending && !dockPending && millis() - backend.lastOkMs() < kWatchdogMs &&
+      WiFi.softAPgetStationNum() == 0 && now - lastPresenceSound >= soundInterval) {
+    lastPresenceSound = now;
+    if (audio::speaker() == audio::Speaker::Connected)
+      audio::request("woof-1", 30, false); // Quiet PCM, never interrupt another clip.
+  }
 
   if (now - lastStatus >= 5000) {
     lastStatus = now;

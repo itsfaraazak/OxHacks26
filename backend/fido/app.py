@@ -235,6 +235,7 @@ def robot_command(snap: dict[str, Any]) -> dict[str, Any]:
     return {
         "mode": snap["robot"]["mode"],
         "motion_enabled": snap["settings"]["motion_enabled"],
+        "voice_enabled": snap["settings"]["voice_enabled"],
         "speech": speech,
         "task": session["task"] if session else None,
         "remaining_seconds": session["remaining_seconds"] if session else None,

@@ -13,7 +13,7 @@ void ModeController::showMode(fido::Mode mode, const char* task) {
     case Mode::Run: display_.show("CATCH ME!", "Press button to stop"); break;
     case Mode::Rest: display_.show("RESTING", "Stopped / paused"); break;
     case Mode::Celebrate: display_.show("GOOD JOB!", "Session complete"); break;
-    case Mode::Unknown: display_.show("...", "Waiting for backend"); break;
+    case Mode::Unknown: display_.show("WAITING\nFOR APP", ""); break;
   }
 }
 
@@ -21,11 +21,14 @@ void ModeController::update(uint32_t now_ms, const char* task, bool rangeFresh, 
   SharedSafety::Tick t = safety_.tick(now_ms, rangeFresh, rangeCm, sampleMs);
   why_ = t.why;
 
-  if (!haveShown_ || t.mode != shown_) {
+  fido::Mode faceMode = t.why == fido::StopReason::Watchdog ||
+                        t.why == fido::StopReason::NoReply ||
+                        t.why == fido::StopReason::HttpErrors ? fido::Mode::Unknown : t.mode;
+  if (!haveShown_ || faceMode != shown_) {
     haveShown_ = true;
-    shown_ = t.mode;
+    shown_ = faceMode;
     Serial.printf("[mode] %s\n", fido::modeName(t.mode));
-    showMode(t.mode, task);
+    showMode(faceMode, task);
   }
 
   // The only place motor outputs are written. t.output is already zero unless every rule allows it.

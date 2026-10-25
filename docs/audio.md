@@ -12,6 +12,14 @@ Players, in priority order:
    reports no connected speaker.
 3. **A judge's phone**, opt-in only (the web app).
 
+The robot additionally has quiet local presence woofs: `woof-1` at 30% PCM
+amplitude, no more than every 22s outside focus or 60s during focus, after
+quiet time following backend cues. These are not session speech events and
+do not generate captions. They require explicit `voice_enabled: true` in robot
+commands, a fresh backend, no e-stop/setup/catch and an idle audio player.
+They do not interrupt session clips; the backend may interrupt them.
+Laptop/phone fallback players do not generate autonomous presence woofs.
+
 Which clip plays at which cue is one table, `PLAYLIST` in
 `backend/fido/speech.py` (see "Clips" below). **Nothing is generated while a
 session runs, and no task text or other user input is used for audio.**

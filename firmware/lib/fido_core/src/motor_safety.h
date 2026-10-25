@@ -6,7 +6,7 @@
 //   * a successful backend reply has arrived, and the latest one is younger than watchdog_ms
 //   * the HTTP error streak is below error_streak_limit
 //   * the latest reply says motion_enabled == true
-//   * the mode is run, nudge or bark (bounded planner pulses), and for `run`
+//   * the mode allows run, warning pulses or bounded idle/focus planner gestures; for `run`
 //     it has lasted less than max_escape_ms
 //   * motion was compiled in (ENABLE_MOTION=1). Evaluated last so that, with motion compiled
 //     out, StopReason::NotCompiled means "every other rule would have allowed movement".
@@ -41,7 +41,7 @@ enum class StopReason : uint8_t {
   Watchdog,  // last successful reply too old
   HttpErrors,
   MotionDisabled,
-  ModeStill,       // mode is not run/nudge/bark
+  ModeStill,       // unknown, rest or celebration; no wheel gestures allowed
   EscapeTimeout,   // run lasted max_escape_ms
   NotCompiled,     // ENABLE_MOTION=0; output is zero (see above)
 };

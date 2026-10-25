@@ -33,7 +33,7 @@ void tick(uint32_t now_ms);
 // None means Bluetooth is disabled or clips are unavailable; tick() still logs the actual link.
 Speaker speaker();
 // Plays a clip by name (latest request wins). False if it was ignored, with the reason logged.
-bool request(const char* clip);
+bool request(const char* clip, uint8_t gainPercent = 100, bool interrupt = true);
 bool playing();
 size_t clipCount();
 void listClips();

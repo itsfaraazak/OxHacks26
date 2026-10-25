@@ -55,6 +55,18 @@ void test_motion_enabled_must_be_literal_true() {
   TEST_ASSERT_FALSE(c.motion_enabled);
 }
 
+void test_ambient_voice_permission_is_explicit() {
+  Command c;
+  TEST_ASSERT_TRUE(parse("{\"mode\":\"sleep\"}", c));
+  TEST_ASSERT_FALSE(c.voice_enabled);
+  TEST_ASSERT_TRUE(parse("{\"mode\":\"sleep\",\"voice_enabled\":\"true\"}", c));
+  TEST_ASSERT_FALSE(c.voice_enabled);
+  TEST_ASSERT_TRUE(parse("{\"mode\":\"sleep\",\"voice_enabled\":true}", c));
+  TEST_ASSERT_TRUE(c.voice_enabled);
+  TEST_ASSERT_TRUE(parse("{\"mode\":\"sleep\",\"voice_enabled\":false}", c));
+  TEST_ASSERT_FALSE(c.voice_enabled);
+}
+
 void test_garbage_is_rejected_and_leaves_command_untouched() {
   Command c;
   c.mode = Mode::Watch;
@@ -149,6 +161,7 @@ int main() {
   RUN_TEST(test_null_speech_and_null_task);
   RUN_TEST(test_every_backend_mode_parses);
   RUN_TEST(test_motion_enabled_must_be_literal_true);
+  RUN_TEST(test_ambient_voice_permission_is_explicit);
   RUN_TEST(test_garbage_is_rejected_and_leaves_command_untouched);
   RUN_TEST(test_long_clip_name_is_truncated_not_overflowed);
   RUN_TEST(test_first_reply_is_recorded_not_played);

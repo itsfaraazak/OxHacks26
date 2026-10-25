@@ -23,6 +23,7 @@ bool parseCommand(const char* json, size_t length, Command& out) {
   cmd.mode = parseMode(mode);
   // Only a literal JSON `true` enables motion; a string, number or missing key is "off".
   cmd.motion_enabled = doc["motion_enabled"].is<bool>() && doc["motion_enabled"].as<bool>();
+  cmd.voice_enabled = doc["voice_enabled"].is<bool>() && doc["voice_enabled"].as<bool>();
   copyString(cmd.task, sizeof cmd.task, doc["task"] | static_cast<const char*>(nullptr));
 
   JsonObjectConst speech = doc["speech"];

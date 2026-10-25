@@ -1,4 +1,5 @@
 #include "motion_planner.h"
+#include "presence.h"
 
 namespace fido {
 
@@ -18,7 +19,7 @@ MotorCommand planMotion(Mode mode, uint32_t ms_in_mode) {
       if (ms_in_mode < 350) return {-1.0f, 1.0f};
       return {};
     default:
-      return {};
+      return presenceMotion(mode, ms_in_mode);
   }
 }
 

@@ -124,8 +124,7 @@ void test_http_error_streak_stops_before_watchdog() {
 }
 
 void test_non_run_modes_do_not_drive() {
-  const Mode still[] = {Mode::Unknown, Mode::Sleep, Mode::BeckonDock, Mode::Watch,
-                        Mode::Rest,  Mode::Celebrate};
+  const Mode still[] = {Mode::Unknown, Mode::Rest, Mode::Celebrate};
   for (Mode m : still) {
     MotorSafety s(cfg());
     s.onReply(0, m, true);
@@ -138,7 +137,7 @@ void test_leaving_run_stops_immediately() {
   s.onReply(0, Mode::Run, true);
   TEST_ASSERT_FALSE(stopped(s.gate(100, kFull)));
   s.onReply(1000, Mode::Watch, true);  // user caught the dog / refocused
-  TEST_ASSERT_TRUE(stopped(s.gate(1000, kFull)));
+  TEST_ASSERT_TRUE(stopped(s.gate(1000, planMotion(Mode::Watch, 0))));
 }
 
 void test_escape_cut_off_after_max_escape_ms() {
@@ -267,6 +266,30 @@ void test_time_based_http_grace_and_physical_stop() {
   TEST_ASSERT_TRUE(stopped(s.gate(6101, kFull)));
 }
 
+void test_presence_is_short_balanced_and_cancellable() {
+  const Mode modes[] = {Mode::Sleep, Mode::BeckonDock, Mode::Watch};
+  for (Mode mode : modes) {
+    float netLeft = 0, netRight = 0;
+    uint32_t moving = 0;
+    for (uint32_t t = 0; t < 50000; ++t) {
+      MotorCommand m = planMotion(mode, t);
+      netLeft += m.left;
+      netRight += m.right;
+      if (!stopped(m)) ++moving;
+    }
+    TEST_ASSERT_TRUE(moving > 0 && moving < 1000);
+    TEST_ASSERT_EQUAL_FLOAT(0, netLeft);
+    TEST_ASSERT_EQUAL_FLOAT(0, netRight);
+    MotorSafety s(cfg());
+    s.onReply(0, mode, false);
+    TEST_ASSERT_TRUE(stopped(s.gate(10, {1, -1})));
+    s.onReply(0, mode, true);
+    TEST_ASSERT_TRUE(stopped(s.gate(3000, {1, -1})));
+    s.onReply(4000, Mode::Rest, true);
+    TEST_ASSERT_TRUE(stopped(s.gate(4001, {1, -1})));
+  }
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_stopped_before_any_reply);
@@ -290,5 +313,6 @@ int main() {
   RUN_TEST(test_turn_timeout_latches_until_leaving_run);
   RUN_TEST(test_bark_shake_is_once_and_gated);
   RUN_TEST(test_time_based_http_grace_and_physical_stop);
+  RUN_TEST(test_presence_is_short_balanced_and_cancellable);
   return UNITY_END();
 }

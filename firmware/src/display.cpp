@@ -22,8 +22,5 @@ void OledDisplay::show(const char* line1, const char* line2) {
   oled_.setTextSize(2);
   oled_.setCursor(0, 0);
   oled_.println(line1);
-  oled_.setTextSize(1);
-  oled_.setCursor(0, 42);
-  for (int i = 0; line2[i] && i < 42; ++i) oled_.write(line2[i]);
   oled_.display();
 }

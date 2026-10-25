@@ -43,6 +43,8 @@ Stats st;
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 fido::ClipRef pending;
 bool havePending = false;
+uint8_t pendingGain = 100;
+uint8_t playbackGain = 100; // Only the audio callback touches this.
 volatile bool isPlaying = false;
 
 bool btStarted = false;
@@ -56,6 +58,7 @@ int32_t dataCallback(uint8_t* data, int32_t len) {
   if (havePending) {
     next = pending;
     havePending = false;
+    playbackGain = pendingGain;
     take = true;
   }
   portEXIT_CRITICAL(&mux);
@@ -67,6 +70,11 @@ int32_t dataCallback(uint8_t* data, int32_t len) {
   isPlaying = true;
   uint32_t frames = static_cast<uint32_t>(len) / 4;
   uint32_t n = player.read(reinterpret_cast<int16_t*>(data), frames);
+  if (playbackGain < 100) {
+    int16_t* samples = reinterpret_cast<int16_t*>(data);
+    for (uint32_t i = 0; i < n * 2; ++i)
+      samples[i] = static_cast<int16_t>(static_cast<int32_t>(samples[i]) * playbackGain / 100);
+  }
   if (!player.active()) isPlaying = false;
   return static_cast<int32_t>(n * 4);
 }
@@ -145,7 +153,7 @@ Speaker speaker() {
   return fido::speakerStatus(store, btStarted, btStarted && a2dp.is_connected());
 }
 
-bool request(const char* clip) {
+bool request(const char* clip, uint8_t gainPercent, bool interrupt) {
   if (speaker() != Speaker::Connected) {
     ++st.clips_dropped;
     Serial.printf("[audio] \"%s\" not played: speaker %s\n", clip, speakerName(speaker()));
@@ -158,8 +166,14 @@ bool request(const char* clip) {
     return false;
   }
   portENTER_CRITICAL(&mux);
+  if (!interrupt && (havePending || isPlaying)) {
+    portEXIT_CRITICAL(&mux);
+    return false;
+  }
   pending = ref;
+  pendingGain = gainPercent > 100 ? 100 : gainPercent;
   havePending = true;
+  isPlaying = true;
   portEXIT_CRITICAL(&mux);
   ++st.clips_played;
   Serial.printf("[audio] playing \"%s\" (%.1f s)\n", clip, static_cast<double>(ref.samples) / ref.sample_rate);

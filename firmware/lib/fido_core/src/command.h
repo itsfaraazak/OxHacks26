@@ -18,6 +18,7 @@ struct Speech {
 struct Command {
   Mode mode = Mode::Unknown;
   bool motion_enabled = false;
+  bool voice_enabled = false; // Missing permission never enables autonomous sounds.
   Speech speech;
   char task[48] = {0};
 };

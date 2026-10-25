@@ -26,7 +26,7 @@ its voltage divider. OLED I2C levels and button pull-up must be 3.3V-safe.
 
 **GPIO12 workaround:** disconnect servo signal for reset/upload, reconnect after
 boot. Centre pulses start after 10 seconds (or later if Bluetooth startup is
-slow). Mode-specific servo wags then slew at up to 2° per 20ms within 50–130°.
+slow). Mode-specific servo wags then slew at up to 3° per 20ms within 45–135°.
 Idle/rest settle at centre; docking/focus wag gently, warning/celebration more.
 Catch, stale backend, setup and e-stop settle the servo. Keep the horn
 detached initially. This is not a reliable unattended boot design.
@@ -73,8 +73,10 @@ Connecting a setup client inhibits motor movement; disconnect before motion test
 
 | Backend mode | Hardware |
 |---|---|
-| sleep, rest, watch, celebrate | Wheels stopped; large OLED state/task and servo gestures |
-| beckon_dock | OLED docking prompt; button sends `docked` |
+| sleep, beckon_dock | Paired 80ms in-place wiggles every 8–12s; frequent tail wags |
+| watch | Paired 60ms wiggles about every 25s; smaller intermittent tail wags |
+| rest, celebrate | Wheels stopped; rest settles tail, celebration wags |
+| beckon_dock button | Stops locally while `docked` is acknowledged |
 | nudge | Once: forward 300ms, pause 50ms, reverse 300ms |
 | bark | Once: 150ms on-spot left, 50ms pause, 150ms right |
 | run | Forward; persistent calibrated right turn below 35cm |
@@ -85,10 +87,26 @@ stop motion. No echo is not clear space. Three distinct valid readings at
 least 45cm are required to finish a turn. A turn exceeding 5 seconds latches
 stopped until run ends; catch/end the session to recover. Rear obstacles are not sensed.
 Catch button stops locally immediately and reports `caught`, holding stopped
-until the backend leaves run. Other presses only log. Failed device events
+until the backend leaves run. In other non-docking modes the button latches
+an emergency stop (serial `r` releases). Failed device events
 retry from the queue. No automatic phone-removal/NFC detection.
 The backend clears the docking acknowledgement on every new session, so each
 start needs a fresh press unless "Start without docking" is enabled.
+
+Presence gestures never command forward wandering, but paired wheel timings do
+not guarantee zero physical drift. The HC-SR04 cannot detect stage/table edges.
+Keep on a stand for a stage demo or test on a clear floor well away from edges.
+Idle/focus wiggles use the same app permission, sensor, network and e-stop gates
+as run. There is no idle movement while disconnected or using setup.
+
+Autonomous `woof-1` is attenuated to 30% PCM amplitude, at most once per 22s in
+idle/docking/celebration and 60s in watch, with quiet time after backend cues.
+It never interrupts another clip; backend speech can interrupt an idle sound.
+No extra barks are added during nudge/bark/run/rest (backend cues remain authoritative).
+Robot replies include literal `voice_enabled`; missing/false disables ambient
+sounds, preserving global mute. Restart the updated backend for this field.
+Screen uses large state-only text, with `WAITING / FOR APP` when disconnected.
+Task/subtitle text remains in serial logs but is not drawn on the OLED.
 
 Safety gates retain backend permission, a 5-second last-valid-reply watchdog,
 serial e-stop, compile-time enable and unknown/still modes. Local escape cap is
