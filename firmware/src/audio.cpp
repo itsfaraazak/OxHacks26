@@ -15,9 +15,9 @@ namespace audio {
 namespace {
 
 // The library retries a lost speaker every 10 s forever (its connection timer). Each attempt pages the
-// speaker and takes radio time away from Wi-Fi, so after repeated failures we stretch the interval:
-// 10 s, 20 s, 40 s, 80 s, then every 120 s. Resets as soon as the speaker connects.
-fido::Backoff reconnectBackoff(8000, 120000);
+// speaker and takes radio time away from Wi-Fi. Cap the backoff at 20 seconds
+// rather than making a newly powered demo speaker wait two minutes.
+fido::Backoff reconnectBackoff(8000, 20000);
 
 class Source : public BluetoothA2DPSource {
  protected:

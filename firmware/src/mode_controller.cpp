@@ -37,7 +37,10 @@ void ModeController::update(uint32_t now_ms, const char* task, bool rangeFresh, 
   bool moving = t.output.left != 0 || t.output.right != 0;
   if (moving != wasMoving_) {
     wasMoving_ = moving;
-    Serial.printf("[motor] %s (%s)\n", moving ? "MOVING" : "stopped", fido::stopReasonName(t.why));
+    const char* reason = !moving && t.why == fido::StopReason::None
+                             ? t.inhibition : fido::stopReasonName(t.why);
+    Serial.printf("[motor] %s (%s), range %.1f cm fresh=%d\n",
+                  moving ? "MOVING" : "stopped", reason, rangeCm, rangeFresh);
   }
   // With ENABLE_MOTION=0 the gate's last rule fires: say once what would have happened.
   bool would = t.why == fido::StopReason::NotCompiled && (t.intent.left != 0 || t.intent.right != 0);

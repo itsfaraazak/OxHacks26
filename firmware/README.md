@@ -119,6 +119,15 @@ Default non-driving builds retain 35%/25% caps.
 Backend requests run on core 0; control and Bluetooth app run on core 1.
 Echo uses interrupts, not blocking pulseIn. OLED refreshes on mode changes.
 Serial status includes range/freshness. Button uses 30ms debounce.
+`[range-health]` counts valid/rejected echoes, timeouts and stuck-high starts;
+`[control]` reports maximum loop interval/work over each status window.
+Motor stop logs distinguish stale range, nearby obstacle and turn timeout from
+backend watchdogs. Reply timestamps are evaluated against a clock captured
+under the safety lock; a concurrently newer reply cannot fake an outage or
+briefly flicker the display to WAITING FOR APP.
+Bluetooth reconnect backoff is capped at 20 seconds (the library's timer
+quantizes attempts), not the original two minutes. Pairing mode and an available
+speaker are still required; retry timing does not guarantee connection.
 
 Audio uses backend `speech.clip` and `speech.seq`, not just mode changes.
 Boot/reconnect does not replay old cues. Mute consumes silent sequences.

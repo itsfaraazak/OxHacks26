@@ -50,6 +50,7 @@ bool dockPending = false;
 bool centreRequested = false;
 uint32_t lastPresenceSound = 0;
 uint32_t lastSpeechSeq = 0;
+uint32_t lastLoop = 0, maxLoopGap = 0, maxLoopWork = 0;
 
 }  // namespace
 
@@ -81,6 +82,9 @@ void fidoSetup() {
 void fidoLoop() {
   esp_task_wdt_reset();
   uint32_t now = millis();
+  uint32_t began = micros();
+  if (lastLoop && now - lastLoop > maxLoopGap) maxLoopGap = now - lastLoop;
+  lastLoop = now;
 
   console.poll();
   // Stop before servicing setup HTTP, which may wait briefly on a slow client.
@@ -158,6 +162,12 @@ void fidoLoop() {
     Serial.printf("[range] %.1f cm (%s) | catch %s | setup clients %u\n",
                   hardware::rangeCm(), hardware::rangeFresh() ? "fresh" : "STOP: stale/invalid",
                   caughtPending ? "pending" : "no", WiFi.softAPgetStationNum());
+    hardware::printRangeStats();
+    Serial.printf("[control] max loop gap %lu ms, max work %lu us (last 5s)\n",
+                  static_cast<unsigned long>(maxLoopGap), static_cast<unsigned long>(maxLoopWork));
+    maxLoopGap = maxLoopWork = 0;
   }
+  uint32_t work = micros() - began;
+  if (work > maxLoopWork) maxLoopWork = work;
   delay(10);
 }

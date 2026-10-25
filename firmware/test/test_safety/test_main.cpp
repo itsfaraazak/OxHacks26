@@ -290,6 +290,14 @@ void test_presence_is_short_balanced_and_cancellable() {
   }
 }
 
+void test_reply_newer_than_control_snapshot_does_not_fake_an_outage() {
+  MotorSafety s(cfg());
+  s.onReply(1001, Mode::Run, true); // Backend task updates after loop captured 1000.
+  TEST_ASSERT_FALSE(stopped(s.gate(1000, kFull)));
+  TEST_ASSERT_EQUAL_UINT32(0, s.msInMode(1000));
+  TEST_ASSERT_TRUE(stopped(s.gate(4001, kFull))); // Real expiry still works.
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_stopped_before_any_reply);
@@ -314,5 +322,6 @@ int main() {
   RUN_TEST(test_bark_shake_is_once_and_gated);
   RUN_TEST(test_time_based_http_grace_and_physical_stop);
   RUN_TEST(test_presence_is_short_balanced_and_cancellable);
+  RUN_TEST(test_reply_newer_than_control_snapshot_does_not_fake_an_outage);
   return UNITY_END();
 }

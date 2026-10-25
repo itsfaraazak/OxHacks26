@@ -18,6 +18,13 @@
 
 namespace fido {
 
+// A reply sampled just after the control clock is fresh, not 49 days old.
+// Supported intervals are shorter than the signed half-range of millis().
+inline uint32_t elapsedMs(uint32_t now, uint32_t then) {
+  int32_t delta = static_cast<int32_t>(now - then);
+  return delta < 0 ? 0 : static_cast<uint32_t>(delta);
+}
+
 struct SafetyConfig {
   bool motion_compiled = false;        // ENABLE_MOTION; false means gate() always returns 0
   uint32_t watchdog_ms = 5000;         // no successful reply for this long => stop
@@ -64,7 +71,7 @@ class MotorSafety {
   MotorCommand gate(uint32_t now_ms, MotorCommand intent, StopReason* why = nullptr) const;
 
   Mode mode() const { return mode_; }
-  uint32_t msInMode(uint32_t now_ms) const { return now_ms - mode_since_; }
+  uint32_t msInMode(uint32_t now_ms) const { return elapsedMs(now_ms, mode_since_); }
 
  private:
   SafetyConfig cfg_;

@@ -43,15 +43,18 @@ class SharedSafety {
     fido::MotorCommand intent;  // what the mode wants
     fido::MotorCommand output;  // what the gate allows (zeros when stopped)
     fido::StopReason why;
+    const char* inhibition;
   };
 
   Tick tick(uint32_t now_ms, bool rangeFresh = false, float rangeCm = 0, uint32_t sampleMs = 0) {
     Tick t;
     portENTER_CRITICAL(&mux_);
+    now_ms = millis(); // Sample under the same lock that protects reply timestamps.
     t.mode = safety_.mode();
     t.ms_in_mode = safety_.msInMode(now_ms);
     t.intent = fido::planMotion(t.mode, t.ms_in_mode);
     t.intent = obstacle_.apply(t.mode, t.intent, rangeFresh, rangeCm, sampleMs, now_ms);
+    t.inhibition = obstacle_.reason();
     t.output = safety_.gate(now_ms, t.intent, &t.why);
     portEXIT_CRITICAL(&mux_);
     return t;

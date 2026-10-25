@@ -47,7 +47,7 @@ MotorCommand MotorSafety::gate(uint32_t now_ms, MotorCommand intent, StopReason*
     reason = StopReason::Estop;
   } else if (!have_reply_) {
     reason = StopReason::NoReply;
-  } else if (now_ms - last_ok_ms_ >= cfg_.watchdog_ms) {
+  } else if (elapsedMs(now_ms, last_ok_ms_) >= cfg_.watchdog_ms) {
     reason = StopReason::Watchdog;
   } else if (cfg_.error_streak_limit > 0 && error_streak_ >= cfg_.error_streak_limit) {
     reason = StopReason::HttpErrors;
@@ -56,7 +56,7 @@ MotorCommand MotorSafety::gate(uint32_t now_ms, MotorCommand intent, StopReason*
   } else if (mode_ != Mode::Run && mode_ != Mode::Nudge && mode_ != Mode::Bark &&
              mode_ != Mode::Sleep && mode_ != Mode::BeckonDock && mode_ != Mode::Watch) {
     reason = StopReason::ModeStill;
-  } else if (mode_ == Mode::Run && now_ms - mode_since_ >= cfg_.max_escape_ms) {
+  } else if (mode_ == Mode::Run && msInMode(now_ms) >= cfg_.max_escape_ms) {
     reason = StopReason::EscapeTimeout;
   } else if (!cfg_.motion_compiled) {
     // Checked last on purpose: with ENABLE_MOTION=0 the motors never move, but the reason then

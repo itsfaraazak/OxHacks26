@@ -9,6 +9,7 @@ void tickRange();
 bool rangeFresh();
 float rangeCm();
 uint32_t rangeSampleMs();
+void printRangeStats();
 // Attach after boot, then slew-limit mode-specific wags around centre.
 void centreServo();
 void tickServo(fido::Mode mode, bool enabled);

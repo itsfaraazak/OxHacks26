@@ -7,6 +7,7 @@ portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 volatile uint32_t riseUs = 0, pulseUs = 0;
 volatile bool waiting = false, risen = false, complete = false;
 uint32_t pingMs = 0, readingMs = 0;
+uint32_t validEchoes = 0, rejectedEchoes = 0, timeouts = 0, stuckHigh = 0;
 float cm = 0;
 bool valid = false;
 void IRAM_ATTR echoEdge() {
@@ -57,6 +58,7 @@ void tickRange() {
   bool timeout = waiting && now - pingMs >= 35;
   if (timeout) waiting = false;
   portEXIT_CRITICAL(&mux);
+  if (timeout) ++timeouts;
   // Retain a valid echo through isolated dropouts; expiry below still stops motion.
   if (done) {
     float measured = pulse * 0.0343f / 2;
@@ -64,12 +66,14 @@ void tickRange() {
       cm = measured;
       valid = true;
       readingMs = now;
-    }
+      ++validEchoes;
+    } else ++rejectedEchoes;
   }
   if (now - pingMs < 80) return;
   pingMs = now;
   portENTER_CRITICAL(&mux);
   waiting = digitalRead(kEcho) == LOW;
+  if (!waiting) ++stuckHigh;
   risen = false;
   portEXIT_CRITICAL(&mux);
   digitalWrite(kTrig, HIGH);
@@ -79,6 +83,13 @@ void tickRange() {
 bool rangeFresh() { return valid && millis() - readingMs < 250; }
 float rangeCm() { return cm; }
 uint32_t rangeSampleMs() { return readingMs; }
+
+void printRangeStats() {
+  Serial.printf("[range-health] age %lu ms valid %lu rejected %lu timeout %lu stuck-high %lu\n",
+                static_cast<unsigned long>(valid ? millis() - readingMs : UINT32_MAX),
+                static_cast<unsigned long>(validEchoes), static_cast<unsigned long>(rejectedEchoes),
+                static_cast<unsigned long>(timeouts), static_cast<unsigned long>(stuckHigh));
+}
 
 void centreServo() {
   ledcAttachPin(kServo, 4);
