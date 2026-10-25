@@ -139,6 +139,47 @@ class PresageMetrics:
         )
 
 
+class SessionPresage:
+    """Own a bounded scan for each active period; never restart on SDK failure/budget."""
+
+    def __init__(self, seconds: float, factory=None):
+        self._seconds = seconds
+        self._factory = factory or PresageBridge
+        self._session = None
+        self._bridge = None
+        self._status = "idle (no active session)"
+
+    def reconcile(self, session_id: str | None) -> None:
+        if session_id == self._session:
+            return
+        self.close()
+        self._session = session_id
+        if session_id is not None:
+            try:
+                self._bridge = self._factory(self._seconds)
+                self._status = "starting"
+            except (RuntimeError, OSError):
+                self._status = "unavailable (restart session to retry)"
+
+    def send(self, *args) -> None:
+        if self._bridge:
+            self._bridge.send(*args)
+
+    def read(self, now: float) -> PresageReading:
+        return self._bridge.read(now) if self._bridge else PresageReading(status=self._status)
+
+    def reset(self, now: float) -> None:
+        if self._bridge:
+            self._bridge.reset(now)
+
+    def close(self) -> None:
+        if self._bridge:
+            self._bridge.close()
+        self._bridge = None
+        self._session = None
+        self._status = "idle (no active session)"
+
+
 class PresageBridge:
     """One bounded child; latest-frame queue keeps SDK stalls off the camera loop."""
 

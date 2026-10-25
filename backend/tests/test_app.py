@@ -86,6 +86,32 @@ def test_each_session_waits_for_new_button_event(client, clock: Clock) -> None:
         assert client.post("/api/session/end").status_code == 200
 
 
+def test_presage_permission_tracks_active_phases_only(client, clock):
+    def permission():
+        return client.post("/api/readings", json=reading(True)).json["calibration_id"]
+
+    assert permission() is None
+    client.post("/api/session", json={"task": "Lifecycle"})
+    assert permission() is None
+    client.post("/api/robot/events", json={"event": "docked"})
+    session_id = permission()
+    assert session_id
+    client.post("/api/session/pause")
+    assert permission() is None
+    client.post("/api/session/resume")
+    assert permission() == session_id
+    clock.now += 16  # Resume grace period.
+    for _ in range(6):
+        clock.now += 1
+        response = client.post("/api/readings", json=reading(False)).json
+    assert response["phase"] == "escaped"
+    assert response["calibration_id"] is None
+    client.post("/api/robot/events", json={"event": "caught"})
+    assert permission() is None
+    client.post("/api/session/end")
+    assert permission() is None
+
+
 def test_errors_distinguish_bad_input_from_wrong_state(client) -> None:
     assert client.post("/api/session", json={"task": "", "duration_minutes": 25}).status_code == 400
     assert client.post("/api/session", data="not json").status_code == 400

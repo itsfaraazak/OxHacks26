@@ -198,7 +198,7 @@ def create_app(engine: FocusEngine | None = None, *, start_ticker: bool = True) 
         snap = hub.snapshot()
         session = snap["session"]
         # Agents recalibrate their posture baseline once per session, when watching starts.
-        watching = session is not None and session["phase"] not in ("awaiting_phone", "completed")
+        watching = session is not None and session["phase"] in ("focusing", "nudge", "barking")
         return jsonify(phase=snap["phase"], calibration_id=session["id"] if watching else None)
 
     @app.post("/api/robot/events")

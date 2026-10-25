@@ -30,7 +30,7 @@ from typing import Any
 import cv2
 
 from .focus import DetectorConfig, FaceLandmarkSource, FocusReading, FocusTracker
-from .presage import CaptureClock, PresageBridge
+from .presage import CaptureClock, SessionPresage
 from .preview import PreviewServer
 
 DIR_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -62,6 +62,7 @@ class Reporter:
         self.token = token
         self.calibration_id: str | None = None
         self.connected = False
+        self.last_reply = 0.0
         self._warned = False
         self._queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
         threading.Thread(target=self._run, name="fido-reporter", daemon=True).start()
@@ -87,10 +88,12 @@ class Reporter:
             try:
                 with urllib.request.urlopen(request, timeout=2) as response:
                     self.calibration_id = json.load(response).get("calibration_id")
+                self.last_reply = time.monotonic()
                 if not self.connected:
                     print(f"Connected to {self.url}")
                 self.connected = True
             except (urllib.error.URLError, OSError, ValueError) as err:
+                self.calibration_id = None
                 if self.connected or not self._warned:
                     print(f"Backend unreachable ({err}); retrying")
                 self.connected, self._warned = False, True
@@ -209,15 +212,8 @@ def main() -> None:
     faces = FaceLandmarkSource()
     presage = None
     if not args.no_presage:
-        try:
-            presage = PresageBridge(args.presage_seconds)
-        except (RuntimeError, OSError) as err:
-            faces.close()
-            cap.release()
-            if preview:
-                preview.close()
-            raise SystemExit(str(err)) from err
-        print(f"Presage face detection: one {args.presage_seconds:g}s scan; no automatic paid restart.")
+        presage = SessionPresage(args.presage_seconds)
+        print(f"Presage: bounded {args.presage_seconds:g}s scan per active period; idle until session starts.")
     reporter = Reporter(args.server, os.environ.get("FIDO_DEVICE_TOKEN"))
     print(f"Watching camera {args.camera!r} as {args.source!r}; reporting to {args.server}. Ctrl+C to quit.")
     if preview:
@@ -253,17 +249,23 @@ def main() -> None:
             frame_timestamp = capture_clock.now_us()
             dt, last_time = monotonic_now - last_time, monotonic_now
             fps = 0.9 * fps + 0.1 * (1.0 / dt) if dt > 0 else fps
+            active_id = (
+                reporter.calibration_id
+                if reporter.connected and monotonic_now - reporter.last_reply < 3 else None
+            )
+            if presage:
+                presage.reconcile(active_id)
 
             # Start each session from a fresh posture baseline, like restarting the prototype.
-            if reporter.calibration_id and reporter.calibration_id != calibration_id:
-                calibration_id = reporter.calibration_id
+            if active_id and active_id != calibration_id:
+                calibration_id = active_id
                 tracker.recalibrate()
                 if presage:
                     presage.reset(now)
 
             if not args.no_flip:
                 frame = cv2.flip(frame, 1)
-            if presage and reporter.calibration_id:
+            if presage and active_id:
                 # Feed capture before MediaPipe work, which may itself stall.
                 # Queue only real frames with their actual capture intervals.
                 height, width = frame.shape[:2]

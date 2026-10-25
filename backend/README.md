@@ -135,11 +135,20 @@ webcam. No additional terminal or HTTP service is needed.
 .venv/bin/python -m detector.agent --server http://localhost:5000
 ```
 
-One face-only scan begins when the backend reports a session after Start. The
-default wall-clock budget is **25 seconds**, followed by a stopped/unknown
-status. Gaze detection continues, but talking/eye closure are NOT monitored
-after the budget expires. No jaw/blink fallback or automatic paid restart.
-Restart Terminal 3 for another bounded scan.
+The detector can stay running while Flask is idle: no SDK process is started
+until the backend reports focusing, nudge or barking after Start/docking.
+It stops and destroys the SDK on pause, escape, failure, completion, session end,
+or lost backend contact (failed request, or no successful reply for 3 seconds).
+The camera and local posture detection continue independently.
+
+A new session, resume, or reconnection into an active session automatically
+starts a new bounded face-only scan. The default wall-clock budget is
+**25 seconds per active period**, followed by stopped/unknown activity signals.
+Budget exhaustion or SDK failure does not automatically restart the scan within
+that same active period. Talking/eye closure remain unknown until a subsequent
+active period; no jaw/blink fallback. Restarting/resuming may incur a new provider
+charge; frequent pause/resume or network failures can therefore increase costs.
+Flask alone does not create Presage sessions.
 
 To deliberately allow face detection for a whole 25-minute session (may consume
 substantially more credits), opt in explicitly:
@@ -181,8 +190,9 @@ Frame timestamps are epoch-anchored once and then advanced by a monotonic
 clock. Frames captured before `sdk.start()` finishes are discarded, including
 ones buffered during native model/auth startup. Capture is handed to the bridge
 before MediaPipe processing. Actual capture intervals are retained: no replay,
-time compression, or interpolation to hide gaps. A real runtime gap can still
-stop the SDK; the preview reports its safe code/stage, e.g. `[11/frame]`.
+time compression, or interpolation to hide gaps. A rejected timestamp-gap frame
+(code 11) is dropped without destroying the scan. Other SDK errors remain fatal
+for that active period and are shown with safe code/stage diagnostics.
 
 **Privacy and cost:** SmartSpectra computes metrics on-device, but contacts
 Presage for authentication/subscription/credit checks. This bridge disables
