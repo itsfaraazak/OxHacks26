@@ -6,9 +6,9 @@ The flow follows the prototype README (archive/oxhack26-prototype/README.md):
 2. Sentry: the camera detector watches; the session clock runs.
 3. Heist: if the user keeps slacking, the dog nudges, then barks, then runs
    away with the phone.
-4. Rescue: the user catches the dog and taps the NFC "good boy" card, and the
-   dog goes back to watching. An escape also ends by itself after
-   `escape_timeout_seconds` (10 minutes by default).
+4. Stop: catching the dog ends the failed session. Only an explicit new Start
+   returns it to watching with a fresh timer. An escape also stops by itself
+   after `escape_timeout_seconds` (10 minutes by default).
 
 The engine is plain Python with an injectable clock so every rule is unit-tested.
 It is not thread-safe; the web app serialises calls with a lock.
@@ -33,10 +33,11 @@ class Phase(str, Enum):
     ESCAPED = "escaped"  # running away with the phone until caught
     PAUSED = "paused"  # user-requested break; clock stopped
     COMPLETED = "completed"  # session time is up
+    FAILED = "failed"  # escape stopped; a new Start is required
 
 
 # Phases where the session clock runs and the dog is "on duty".
-ACTIVE_PHASES = frozenset({Phase.FOCUSING, Phase.NUDGE, Phase.BARKING, Phase.ESCAPED})
+ACTIVE_PHASES = frozenset({Phase.FOCUSING, Phase.NUDGE, Phase.BARKING})
 
 # What the robot should be doing in each phase. Robot hardware acts on this
 # value only, so the hardware never needs to know the session rules.
@@ -49,6 +50,7 @@ ROBOT_MODES: dict[Phase, str] = {
     Phase.ESCAPED: "run",
     Phase.PAUSED: "rest",
     Phase.COMPLETED: "celebrate",
+    Phase.FAILED: "rest",
 }
 
 MAX_TASK_LENGTH = 120
@@ -56,6 +58,7 @@ MAX_SOURCES = 8
 SOURCE_NAME = re.compile(r"[A-Za-z0-9_-]{1,32}")
 MAX_SESSION_EVENTS = 50
 MAX_HISTORY = 100
+DEFAULT_DURATION_MINUTES = 25
 
 
 class EngineError(ValueError):
@@ -73,7 +76,7 @@ class Settings:
     bark_after_seconds: float = 6.0  # nudge -> barking while still distracted
     escape_after_seconds: float = 8.0  # barking -> escaped while still distracted
     escape_timeout_seconds: float = 600.0  # an uncaught escape ends by itself
-    recover_grace_seconds: float = 15.0  # no escalation right after resume / catch
+    recover_grace_seconds: float = 15.0  # no escalation right after resume
     source_stale_seconds: float = 3.0  # ignore cameras that stopped reporting
     robot_offline_seconds: float = 5.0  # robot shown offline after this silence
     require_dock: bool = True  # False: start without NFC docking (no hardware)
@@ -156,7 +159,7 @@ class FocusEngine:
             raise InvalidInput(f"task must be at most {MAX_TASK_LENGTH} characters")
         if isinstance(duration_minutes, bool) or not isinstance(duration_minutes, int) or not 1 <= duration_minutes <= 600:
             raise InvalidInput("duration_minutes must be a whole number from 1 to 600")
-        if self.session is not None and self.session.phase is not Phase.COMPLETED:
+        if self.session is not None and self.session.phase not in (Phase.COMPLETED, Phase.FAILED):
             raise EngineError("A session is already running; end it first")
 
         now = self._clock()
@@ -180,7 +183,7 @@ class FocusEngine:
         if action == "end":
             if s is None:
                 raise EngineError("No session to end")
-            if s.phase is not Phase.COMPLETED:
+            if s.phase not in (Phase.COMPLETED, Phase.FAILED):
                 self._archive(s, now, completed=False)
             self.session = None
             self._changed()
@@ -226,7 +229,7 @@ class FocusEngine:
         elif event == "caught":
             # The NFC "good boy" card only means something during an escape.
             if s is not None and s.phase is Phase.ESCAPED:
-                self._caught(now, "Caught (good boy card)")
+                self._caught(now, "Caught (robot stop button)")
                 self._changed()
         self.advance()
 
@@ -275,6 +278,11 @@ class FocusEngine:
         if s is not None and s.phase is Phase.AWAITING_PHONE and (self.phone_docked or not st.require_dock):
             self._enter(Phase.FOCUSING, now, "Phone docked" if self.phone_docked else "Started without docking")
             self._changed()
+        if s is not None and s.phase is Phase.ESCAPED:
+            if now - s.phase_since >= st.escape_timeout_seconds:
+                self._stop_escape(now, "Escape timed out; Fido stopped")
+                self._changed()
+            return
         if s is None or s.phase not in ACTIVE_PHASES:
             return
 
@@ -282,12 +290,6 @@ class FocusEngine:
             self._enter(Phase.COMPLETED, now, "Time's up. Well done!")
             self._archive(s, now, completed=True)
             self._changed()
-            return
-
-        if s.phase is Phase.ESCAPED:
-            if now - s.phase_since >= st.escape_timeout_seconds:
-                self._back_to_focusing(now, "Escape timed out; Fido stopped")
-                self._changed()
             return
 
         distracted, reason = self._distraction(now)
@@ -383,7 +385,12 @@ class FocusEngine:
         s = self.session
         if s is None or s.phase is not Phase.ESCAPED:
             raise EngineError("Fido is not running away")
-        self._back_to_focusing(now, reason)
+        self._stop_escape(now, reason)
+
+    def _stop_escape(self, now: float, reason: str) -> None:
+        assert self.session is not None
+        self._enter(Phase.FAILED, now, f"{reason}. Session failed; press Start to begin again.")
+        self._archive(self.session, now, completed=False)
 
     def _back_to_focusing(self, now: float, reason: str) -> None:
         assert self.session is not None

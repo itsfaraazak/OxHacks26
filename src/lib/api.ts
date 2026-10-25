@@ -5,7 +5,7 @@
 
 export type Phase =
   | "idle" | "awaiting_phone" | "focusing" | "nudge"
-  | "barking" | "escaped" | "paused" | "completed";
+  | "barking" | "escaped" | "paused" | "completed" | "failed";
 
 export type RobotMode =
   | "sleep" | "beckon_dock" | "watch" | "nudge"
@@ -87,8 +87,8 @@ async function request<T>(path: string, method = "GET", body?: unknown): Promise
 }
 
 export const api = {
-  startSession: (task: string, durationMinutes: number) =>
-    request<FidoState>("/api/session", "POST", { task, duration_minutes: durationMinutes }),
+  startSession: (task: string) =>
+    request<FidoState>("/api/session", "POST", { task }),
   sessionAction: (action: SessionAction) => request<FidoState>(`/api/session/${action}`, "POST"),
   updateSettings: (changes: Partial<Settings>) => request<Settings>("/api/settings", "PATCH", changes),
   history: () => request<HistoryEntry[]>("/api/history"),

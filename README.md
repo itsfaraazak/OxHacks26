@@ -49,8 +49,18 @@ real distraction detection, run the detector agent on the laptop (see
 
 ```sh
 cd backend && .venv/bin/pip install -r requirements-detector.txt
+(cd presage && npm ci)
+# Set SMARTSPECTRA_API_KEY in presage/.env (gitignored), then:
 .venv/bin/python -m detector.agent
 ```
+
+The agent uses one webcam and automatically launches the local Presage face
+bridge for talking/blinking and landmark-derived prolonged eye closure.
+The default paid scan is bounded to **25 seconds after Start**, not the whole
+session; after that only gaze/posture detection continues. Use
+`--presage-seconds 1500` only if you deliberately want a full-session scan and
+accept its credit cost, or `--no-presage` for free gaze-only testing. See the
+[face-detection rules and privacy notes](backend/README.md#presage-face-detection).
 
 `run.sh` is the editable source for setup and launch commands; `package.json`
 contains the underlying npm scripts.
@@ -72,7 +82,8 @@ and retries.
   page applies the state the backend returns, and errors show in a toast.
 - The countdown shows the backend's `remaining_seconds`, interpolated locally
   between events; there is no frontend timer or state machine.
-- Phases: awaiting phone, focusing, nudge, barking, escaped, paused, completed,
+- Every new session is 25 minutes; custom session durations are not supported.
+- Phases: awaiting phone, focusing, nudge, barking, escaped, paused, completed, failed,
   with the backend's `reason` shown during nudge, barking, and escaped.
 - Activity: the journal comes from `GET /api/history`; the session timeline from
   the session's `events`.
@@ -87,8 +98,9 @@ and retries.
 `npx playwright test` (or `sh run.sh test`) starts the backend on :5000 and the
 frontend on :3000 unless they are already running, then drives the real journey:
 it shortens escalation through the API, fakes detector readings with
-`POST /api/readings` to go nudge → barking → escaped, clicks "I caught Fido",
-ends the session, and checks the journal. Tests share one backend, so they run
+`POST /api/readings` to go nudge → barking → escaped, clicks "Stop Fido",
+checks the failed state, explicitly starts a fresh timer, and checks the
+journal. Tests share one backend, so they run
 serially and reset the session and settings around each test. Install the
 browser once with `npx playwright install chromium`.
 

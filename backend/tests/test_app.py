@@ -59,7 +59,8 @@ def test_full_journey_over_http(client, clock: Clock) -> None:
 
     client.post("/api/robot/events", json={"event": "caught"})
     state = client.get("/api/state").json
-    assert state["phase"] == "focusing"
+    assert state["phase"] == "failed"
+    assert client.get("/api/robot/command").json["mode"] == "rest"
     assert state["vitals"] == {"pulse": 72}
     assert state["robot"]["info"] == {"battery": 80}
     assert state["detector"]["sources"]["laptop"]["fps"] == 29.5
@@ -73,7 +74,7 @@ def test_errors_distinguish_bad_input_from_wrong_state(client) -> None:
     assert client.post("/api/session", data="not json").status_code == 400
     assert client.post("/api/session/dance").status_code == 409  # no session yet
 
-    client.post("/api/session", json={"task": "x", "duration_minutes": 5})
+    client.post("/api/session", json={"task": "x"})
     assert client.post("/api/session/dance").status_code == 400
     res = client.post("/api/session/resume")
     assert res.status_code == 409
@@ -113,6 +114,20 @@ def test_event_stream_pushes_each_change(app, client) -> None:
 
     assert next_state()["phase"] == "idle"
 
-    threading.Timer(0.05, lambda: client.post("/api/session", json={"task": "x", "duration_minutes": 5})).start()
+    threading.Timer(0.05, lambda: client.post("/api/session", json={"task": "x"})).start()
     assert next_state()["phase"] == "awaiting_phone"
     res.close()
+
+
+@pytest.mark.parametrize("duration", [1, 15, 45, 60, 25.0, "25", True, None])
+def test_custom_session_durations_are_rejected(client, duration) -> None:
+    res = client.post("/api/session", json={"task": "Write", "duration_minutes": duration})
+    assert res.status_code == 400
+    assert client.get("/api/state").json["session"] is None
+
+
+def test_session_defaults_to_25_minutes(client) -> None:
+    res = client.post("/api/session", json={"task": "Write"})
+    assert res.status_code == 201
+    assert res.json["session"]["duration_seconds"] == 1500
+    assert res.json["session"]["remaining_seconds"] == 1500

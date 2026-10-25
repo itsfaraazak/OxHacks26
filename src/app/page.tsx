@@ -15,17 +15,18 @@ const phaseCopy: Record<Phase, [string, string]> = {
   focusing: ["You do your thing.", "Fido’s keeping watch. One thing at a time."],
   nudge: ["Hey, eyes over here.", "A gentle nudge. Your goal is waiting for you."],
   barking: ["Woof! Back to your one thing.", "Fido’s getting impatient. Bring your attention back."],
-  escaped: ["Fido ran off with your phone.", "Catch Fido and tap the good-boy card on its collar."],
+  escaped: ["Fido ran off with your phone.", "Session failed. Catch Fido, then press Stop Fido."],
   paused: ["Take a little breather.", "Your session is paused. Fido’s not going anywhere."],
   completed: ["Look at you, focused.", "One small session. A meaningful step forward."],
+  failed: ["Fido stopped. Take a moment.", "That timer is over. Press Start when you’re ready for a fresh session."],
 };
 const floatingNote: Record<Phase, string> = {
   idle: "Ready when you are", awaiting_phone: "Waiting for your phone", focusing: "Keeping watch",
   nudge: "Psst, over here", barking: "Woof woof!", escaped: "Catch me if you can",
-  paused: "Taking a breather", completed: "Good job!",
+  paused: "Taking a breather", completed: "Good job!", failed: "Ready for a fresh start",
 };
 const PAUSABLE: Phase[] = ["focusing", "nudge", "barking"];
-const SHOW_REASON: Phase[] = ["nudge", "barking", "escaped"];
+const SHOW_REASON: Phase[] = ["nudge", "barking", "escaped", "failed"];
 const NUMBER_SETTINGS: { key: "bark_after_seconds" | "escape_after_seconds" | "escape_timeout_seconds"; label: string; hint: string }[] = [
   { key: "bark_after_seconds", label: "Bark after", hint: "Seconds of distraction in a nudge before Fido barks." },
   { key: "escape_after_seconds", label: "Run off after", hint: "Seconds of barking before Fido runs off with your phone." },
@@ -73,7 +74,6 @@ function Robot({ phase }: { phase: Phase }) {
 export default function Home() {
   const [tab, setTab] = useState<Tab>("Focus");
   const [task, setTask] = useState("Make something that matters");
-  const [duration, setDuration] = useState(25);
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -95,10 +95,10 @@ export default function Home() {
   const settings = state?.settings ?? null;
   const robot = state?.robot ?? null;
   const online = connection === "live" && state !== null;
-  const canStart = phase === "idle" || phase === "completed";
+  const canStart = phase === "idle" || phase === "completed" || phase === "failed";
 
   // History changes when a session completes or ends, and may have changed while disconnected.
-  const historyKey = `${connection}|${session?.id ?? ""}|${phase === "completed"}`;
+  const historyKey = `${connection}|${session?.id ?? ""}|${phase === "completed" || phase === "failed"}`;
   useEffect(() => {
     if (connection !== "live") return;
     let current = true;
@@ -137,7 +137,7 @@ export default function Home() {
   }
   function start() {
     if (!task.trim()) { setNotice("Give this session a small, specific goal first."); return; }
-    void run(() => api.startSession(task.trim(), duration));
+    void run(() => api.startSession(task.trim()));
   }
   const act = (action: SessionAction, done?: string) => void run(() => api.sessionAction(action), done);
   const updateSettings = (changes: Partial<Settings>) => run(() => api.updateSettings(changes));
@@ -156,7 +156,7 @@ export default function Home() {
 
   // Interpolate from the last snapshot. Elapsed time is measured on this device from when the
   // snapshot arrived (server_time anchored to local receipt), so clock skew between devices cancels out.
-  const remaining = !session ? duration * 60
+  const remaining = !session ? 25 * 60
     : session.clock_running && snap ? Math.max(0, session.remaining_seconds - Math.max(0, now - snap.receivedAt) / 1000)
     : session.remaining_seconds;
   const shown = Math.ceil(remaining);
@@ -170,8 +170,8 @@ export default function Home() {
   const vitalRows = ([["pulse", "Pulse", "bpm"], ["breathing", "Breathing", "breaths/min"], ["hrvRmssd", "HRV (RMSSD)", "ms"]] as const)
     .filter(([key]) => typeof vitals?.[key] === "number");
   const onlineDevices = (robot?.online ? 1 : 0) + sources.filter(([, s]) => s.fresh).length;
-  const watching = session !== null && !["awaiting_phone", "paused", "completed"].includes(phase);
-  const footnote = !session || phase === "completed" ? "Dock your phone. Set your intention. We’ve got you."
+  const watching = PAUSABLE.includes(phase);
+  const footnote = !session || canStart ? "Dock your phone. Set your intention. We’ve got you."
     : phase === "awaiting_phone" ? "The clock starts once your phone is on Fido."
     : watching && state?.detector.focused === null ? "No camera is reporting yet. Run python -m detector.agent on your laptop."
     : "Only yes / no leaves the camera. No video is uploaded.";
@@ -199,14 +199,13 @@ export default function Home() {
             </section>
             <section className="session-card"><div className="card-top"><span className="section-label">MAKE ROOM FOR DEEP WORK</span><Clock3 size={17}/></div><h2>{canStart ? "What’s your one thing?" : phase === "awaiting_phone" ? "Place your phone on Fido." : phase === "paused" ? "A moment to reset." : phase === "escaped" ? "Go get your phone back." : "Stay with your one thing."}</h2><p className="muted">Big ideas start with a little undivided attention.</p>
               <label className="field-label" htmlFor="task">I WANT TO FOCUS ON</label><div className="task-input"><Target size={18}/><input id="task" value={canStart || !session ? task : session.task} maxLength={120} disabled={!canStart} onChange={e => setTask(e.target.value)} placeholder="Give your session a goal…"/></div>
-              <div className="duration-label"><span className="field-label">FOR A LITTLE WHILE</span><span>Find your flow</span></div>
-              <div className="duration-options">{[15, 25, 45, 60].map(n => { const chosen = canStart ? duration === n : session?.duration_seconds === n * 60; return <button disabled={!canStart} className={chosen ? "chosen" : ""} onClick={() => setDuration(n)} key={n}>{n}<span> min</span>{chosen && <span className="duration-dot"/>}</button>; })}</div>
-              {session && phase !== "completed" && <div className="timer" aria-label={`${minutes} minutes ${seconds} seconds remaining`}><span>{minutes}<span>:</span>{seconds}</span><div className="timer-track"><div style={{ width: `${progress * 100}%` }}/></div></div>}
+              <div className="duration-label"><span className="field-label">FOCUS SESSION</span><span>25 minutes</span></div>
+              {session && !canStart && <div className="timer" aria-label={`${minutes} minutes ${seconds} seconds remaining`}><span>{minutes}<span>:</span>{seconds}</span><div className="timer-track"><div style={{ width: `${progress * 100}%` }}/></div></div>}
               {phase === "awaiting_phone" && settings?.require_dock && !robot?.online && <div className="privacy-note"><Dog size={17}/><span>Fido’s robot isn’t connected. No robot yet? Turn on <button className="link-button" onClick={openSettings}>Start without docking</button> in Settings.</span></div>}
               {!session ? <button className="primary-button" disabled={!online || busy} onClick={start}>Let’s focus <ArrowRight size={19}/></button>
                 : <div className="session-actions">
-                  {phase === "completed" ? <button className="primary-button" disabled={!online || busy} onClick={start}>Let’s focus <ArrowRight size={17}/></button>
-                    : phase === "escaped" ? <button className="primary-button" disabled={busy} onClick={() => act("caught")}><Hand size={17}/> I caught Fido</button>
+                  {canStart ? <button className="primary-button" disabled={!online || busy} onClick={start}>{phase === "failed" ? "Start" : "Let’s focus"} <ArrowRight size={17}/></button>
+                    : phase === "escaped" ? <button className="primary-button" disabled={busy} onClick={() => act("caught")}><Hand size={17}/> Stop Fido</button>
                     : phase === "paused" ? <button className="primary-button" disabled={busy} onClick={() => act("resume")}><Play size={17}/> Keep going</button>
                     : <button className="primary-button" disabled={busy || !PAUSABLE.includes(phase)} onClick={() => act("pause")}><Pause size={17}/> Take a breath</button>}
                   <button className="stop-button" aria-label="End session" disabled={busy} onClick={() => act("end", phase === "completed" ? "Session cleared." : "Session ended. It’s in your journal.")}><Square size={17}/></button>
@@ -234,6 +233,6 @@ export default function Home() {
       {NUMBER_SETTINGS.map(({ key, label: name, hint }) => <label className="setting-row" key={key}><span><strong>{name}</strong><small>{hint}</small></span><input className="number-input" type="number" min={1} max={86400} step={1} aria-label={name} value={drafts[key] ?? String(settings[key])} onChange={e => setDrafts(d => ({ ...d, [key]: e.target.value }))}/></label>)}
       <label className="setting-row"><span><strong>Start without docking</strong><small>Begin watching without the phone on Fido, e.g. with no robot connected.</small></span><input type="checkbox" checked={!settings.require_dock} disabled={busy} onChange={e => void updateSettings({ require_dock: !e.target.checked })}/></label>
       <label className="setting-row"><span><strong>Fido can move</strong><small>Turn off to keep Fido still. Also an emergency stop.</small></span><input type="checkbox" checked={settings.motion_enabled} disabled={busy} onChange={e => void updateSettings({ motion_enabled: e.target.checked })}/></label>
-    </> : <div className="privacy-note"><WifiOff size={19}/><span>Settings live on Fido’s backend, which isn’t reachable right now.</span></div>}<button className="primary-button" disabled={busy} onClick={() => void saveSettings()}>Save <Check size={17}/></button></> : <><p>Fido gives your phone a place to rest so you can do your best work.</p><ol className="help-list"><li>Set one goal and choose your focus time.</li><li>Place your phone on Fido. The clock starts once it’s docked.</li><li>A camera watches for slacking. Fido nudges, barks, then runs off with your phone.</li><li>Catch Fido and tap the good-boy card on its collar to get back to work.</li></ol><p className="muted">Detection runs next to the camera and only sends yes / no. Vitals come from an optional Presage scan and are not medical measurements.</p><button className="primary-button" onClick={() => setModal(null)}>Sounds good <Check size={17}/></button></>}</section></div>}
+    </> : <div className="privacy-note"><WifiOff size={19}/><span>Settings live on Fido’s backend, which isn’t reachable right now.</span></div>}<button className="primary-button" disabled={busy} onClick={() => void saveSettings()}>Save <Check size={17}/></button></> : <><p>Fido gives your phone a place to rest so you can do your best work.</p><ol className="help-list"><li>Set one goal for a 25-minute focus session.</li><li>Place your phone on Fido. The clock starts once it’s docked.</li><li>A camera watches for slacking. Fido nudges, barks, then runs off with your phone.</li><li>Running away fails that timer. Catch Fido and press Stop Fido, then Start again when you’re ready for a fresh session.</li></ol><p className="muted">Detection runs next to the camera and only sends yes / no. Vitals come from an optional Presage scan and are not medical measurements.</p><button className="primary-button" onClick={() => setModal(null)}>Sounds good <Check size={17}/></button></>}</section></div>}
   </div>;
 }

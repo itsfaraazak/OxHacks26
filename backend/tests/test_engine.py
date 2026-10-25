@@ -111,18 +111,24 @@ def test_escape_continues_until_caught_even_if_user_refocuses(engine: FocusEngin
     assert phase(engine) is Phase.ESCAPED
 
 
-def test_good_boy_card_ends_escape_and_gives_grace(engine: FocusEngine, clock: Clock) -> None:
+def test_robot_stop_ends_failed_session_until_explicit_restart(engine: FocusEngine, clock: Clock) -> None:
     docked_session(engine)
     report(engine, clock, NOT_FOCUSED, 11)
+    old_id = engine.session.id
     engine.robot_event("caught")
-    assert phase(engine) is Phase.FOCUSING
-    assert engine.session.reason == "Caught (good boy card)"
+    assert phase(engine) is Phase.FAILED
+    assert engine.snapshot()["robot"]["mode"] == "rest"
+    assert engine.history[0]["completed"] is False
 
-    # Catching the dog takes the user away from the desk; no escalation yet.
-    report(engine, clock, NOT_FOCUSED, 9)
+    report(engine, clock, NOT_FOCUSED, 30)
+    assert phase(engine) is Phase.FAILED
+    report(engine, clock, FOCUSED, 1)
+    engine.start("Write the report", 25)
     assert phase(engine) is Phase.FOCUSING
-    report(engine, clock, NOT_FOCUSED, 1)
-    assert phase(engine) is Phase.NUDGE
+    assert engine.session.id != old_id
+    assert engine.snapshot()["session"]["remaining_seconds"] == 1500
+    assert engine.session.distractions == engine.session.escapes == 0
+    assert len(engine.history) == 1
 
 
 def test_caught_from_app_and_outside_escape(engine: FocusEngine, clock: Clock) -> None:
@@ -134,7 +140,10 @@ def test_caught_from_app_and_outside_escape(engine: FocusEngine, clock: Clock) -
 
     report(engine, clock, NOT_FOCUSED, 11)
     engine.apply("caught")
-    assert phase(engine) is Phase.FOCUSING
+    assert phase(engine) is Phase.FAILED
+    engine.robot_event("caught")  # repeated button press must not archive twice
+    engine.apply("end")
+    assert len(engine.history) == 1
 
 
 def test_escape_stops_by_itself_after_ten_minutes(clock: Clock) -> None:
@@ -147,8 +156,25 @@ def test_escape_stops_by_itself_after_ten_minutes(clock: Clock) -> None:
     assert phase(engine) is Phase.ESCAPED
     clock.tick(1)
     engine.advance()
-    assert phase(engine) is Phase.FOCUSING
+    assert phase(engine) is Phase.FAILED
     assert "timed out" in engine.session.reason
+    assert engine.history[0]["completed"] is False
+
+
+def test_escape_freezes_timer_and_cannot_complete_or_restart(engine: FocusEngine, clock: Clock) -> None:
+    docked_session(engine, minutes=1)
+    report(engine, clock, NOT_FOCUSED, 11)
+    remaining = engine.snapshot()["session"]["remaining_seconds"]
+    assert engine.snapshot()["session"]["clock_running"] is False
+    clock.tick(90)
+    engine.advance()
+    assert phase(engine) is Phase.ESCAPED
+    assert engine.snapshot()["session"]["remaining_seconds"] == remaining
+    with pytest.raises(EngineError):
+        engine.start("Try again", 1)
+    engine.apply("caught")
+    assert phase(engine) is Phase.FAILED
+    assert engine.history[0]["completed"] is False
 
 
 def test_removing_phone_is_a_distraction(engine: FocusEngine, clock: Clock) -> None:

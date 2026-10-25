@@ -1,6 +1,7 @@
-"""The ported tracker must make the same decisions as the prototype loop."""
+"""Prototype gaze rules, with Presage as the only face-activity source."""
 
 from detector.focus import FaceSignals, FocusTracker
+from detector.presage import PresageReading
 
 DT = 1 / 30  # 30 fps, a typical webcam
 LOOKING = FaceSignals(pitch_ratio=0.40, yaw_ratio=0.0, eye_down=0.0, eye_blink=0.0, jaw_open=0.0)
@@ -67,29 +68,56 @@ def test_no_face_counts_as_desk_abandoned() -> None:
     assert reading.reason == "No Face (Desk Abandoned)"
 
 
-def test_micro_sleep_after_4_seconds_of_closed_eyes() -> None:
+def test_mediapipe_jaw_and_blink_do_not_trigger_face_activity() -> None:
+    reading = run(calibrated(), FaceSignals(0.40, 0.0, 0.0, 1.0, 1.0), 10)
+    assert reading.focused
+    assert reading.talking_seconds == reading.eyes_closed_seconds == 0.0
+    assert reading.presage_status == "disabled"
+
+
+def test_presage_talking_drives_decision_even_with_closed_jaw() -> None:
     tracker = calibrated()
-    asleep = FaceSignals(0.40, 0.0, 0.0, 0.9, 0.0)
-    assert run(tracker, asleep, 3.9).focused
-    reading = run(tracker, asleep, 0.2)
-    assert not reading.focused and reading.reason.startswith("Micro-Sleep")
-    assert run(tracker, LOOKING, DT).focused  # opening the eyes resets instantly
+    assert tracker.update(LOOKING, DT, PresageReading(
+        status="running", talking=True, talking_seconds=0.5,
+    )).focused
+    reading = tracker.update(LOOKING, DT, PresageReading(
+        status="running", talking=True, talking_seconds=0.7,
+    ))
+    assert not reading.focused and "Talking / Chatting (Presage" in reading.reason
 
 
-def test_talking_survives_short_pauses_and_triggers_after_2_seconds() -> None:
+def test_presage_blink_is_telemetry_not_sleep_or_distraction() -> None:
+    reading = calibrated().update(LOOKING, DT, PresageReading(
+        status="running", blinking=True, blinks=1,
+    ))
+    assert reading.focused and reading.blinking is True and reading.blinks == 1
+    assert reading.eyes_closed_seconds == 0
+
+
+def test_prolonged_presage_landmark_closure_requires_four_seconds() -> None:
     tracker = calibrated()
-    talking = FaceSignals(0.40, 0.0, 0.0, 0.0, 0.2)
-    run(tracker, talking, 1.0)
-    run(tracker, LOOKING, 0.5)  # pause between words keeps counting
-    reading = run(tracker, talking, 0.6)
-    assert not reading.focused and reading.reason.startswith("Talking / Chatting")
+    assert tracker.update(LOOKING, DT, PresageReading(
+        status="running", eyes_closed=True, eyes_closed_seconds=3.9,
+    )).focused
+    reading = tracker.update(LOOKING, DT, PresageReading(
+        status="running", eyes_closed=True, eyes_closed_seconds=4.1,
+    ))
+    assert not reading.focused and "Presage landmarks" in reading.reason
+    assert not tracker.update(LOOKING, DT, PresageReading(
+        status="running", eyes_closed=False,
+    )).focused
+    assert run(tracker, LOOKING, 2.1).focused
 
 
-def test_talking_resets_after_silence_grace() -> None:
+def test_unknown_presage_does_not_reuse_old_face_activity() -> None:
     tracker = calibrated()
-    run(tracker, FaceSignals(0.40, 0.0, 0.0, 0.0, 0.2), 1.5)
-    run(tracker, LOOKING, 1.0)
-    assert tracker.talking_seconds == 0.0
+    tracker.update(LOOKING, DT, PresageReading(status="running", talking_seconds=1))
+    reading = tracker.update(LOOKING, DT, PresageReading(status="stopped"))
+    assert not reading.focused and reading.talking_seconds == 0
+    assert "face activity unknown" in reading.reason
+    assert tracker.update(None, DT, PresageReading(
+        status="running", eyes_closed=True, eyes_closed_seconds=5,
+    )).eyes_closed_seconds == 0
 
 
 def test_recalibrate_forgets_baseline_and_timers() -> None:
@@ -98,3 +126,47 @@ def test_recalibrate_forgets_baseline_and_timers() -> None:
     tracker.recalibrate()
     assert not tracker.calibrated and tracker.distracted_seconds == 0.0
     assert tracker.update(LOOKING, DT).reason == "Calibrating posture..."
+
+
+def test_no_requires_two_full_seconds_of_clear_readings_before_yes() -> None:
+    tracker = calibrated()
+    assert not tracker.update(LOOKING, 0.1, PresageReading(
+        status="running", talking=True, talking_seconds=0.7,
+    )).focused
+    assert not tracker.update(LOOKING, 0.1).focused  # first clear frame starts clock
+    for _ in range(19):
+        reading = tracker.update(LOOKING, 0.1)
+        assert not reading.focused
+        assert "recovering" in reading.reason
+    assert tracker.update(LOOKING, 0.1).focused
+
+
+def test_new_no_resets_recovery_instead_of_flickering() -> None:
+    tracker = calibrated()
+    no = PresageReading(status="running", eyes_closed=True, eyes_closed_seconds=4.1)
+    for _ in range(3):
+        assert not tracker.update(LOOKING, 0.1, no).focused
+        assert not tracker.update(LOOKING, 0.1).focused
+        for _ in range(19):
+            assert not tracker.update(LOOKING, 0.1).focused
+    assert tracker.update(LOOKING, 0.1).focused
+
+
+def test_same_recovery_rule_applies_to_gaze_distraction() -> None:
+    tracker = calibrated()
+    assert not run(tracker, FaceSignals(0.7, 0, 0), 8.1).focused
+    assert not run(tracker, LOOKING, 1.9).focused
+    assert run(tracker, LOOKING, 0.3).focused
+
+
+def test_capture_stall_cannot_satisfy_recovery_and_recalibration_clears_latch() -> None:
+    tracker = calibrated()
+    no = PresageReading(status="running", talking_seconds=0.7)
+    tracker.update(LOOKING, 0.1, no)
+    tracker.update(LOOKING, 0.1)
+    for _ in range(10):
+        tracker.update(LOOKING, 0.1)
+    assert not tracker.update(LOOKING, 3.0).focused
+    assert not tracker.update(LOOKING, 0.1).focused
+    tracker.recalibrate()
+    assert tracker.update(LOOKING, DT).focused

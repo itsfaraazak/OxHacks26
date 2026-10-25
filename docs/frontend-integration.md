@@ -21,7 +21,7 @@ API reference: [backend/README.md#api](../backend/README.md#api).
    - Delete or retire `src/lib/focus.ts` transitions and their tests; replace
      them with a thin typed client (`src/lib/api.ts`) mirroring the snapshot
      shape below.
-   - Commands: `POST /api/session {task, duration_minutes}`, `POST
+   - Commands: `POST /api/session {task}` (fixed 25-minute sessions), `POST
      /api/session/pause|resume|caught|end`, `PATCH /api/settings`. On HTTP 409
      the body contains `state`; apply it. On 400, show `error` in the toast.
    - The countdown: display `session.remaining_seconds`, and while
@@ -31,17 +31,19 @@ API reference: [backend/README.md#api](../backend/README.md#api).
    docked: "Place your phone on Fido". Include a hint when
    `settings.require_dock` is true and the robot is offline, and a way to turn
    `require_dock` off in Settings ("Start without docking").
-4. **Escape is ended by catching Fido, not by refocusing.** In `escaped`, the
-   primary action is "I caught Fido" (`POST /api/session/caught`). Copy should
-   mention tapping the good-boy card on Fido's collar. Remove the
-   "Refocus" / "Simulate distraction" demo buttons (detection is real now).
-   Pause is only allowed in `focusing`, `nudge`, `barking`.
+4. **Escape fails the timer and requires a stop, then an explicit restart.**
+   In `escaped`, the clock is frozen and the primary action is "Stop Fido"
+   (`POST /api/session/caught`), simulating the robot's stop button.
+   Catching or the 10-minute timeout enters `failed`, never `focusing`.
+   Render `failed` with "Start again", posting a new `/api/session` to get a
+   fresh timer and counters. Pause is only allowed in `focusing`, `nudge`,
+   `barking`; no resume is allowed after escape.
 5. **Show why.** `session.reason` explains the current phase (e.g.
    "Looking Down at Phone/Lap (ΔPitch: +0.31) [laptop]"). Show it under the
-   companion copy during `nudge`, `barking`, `escaped`. `session.events` is the
+   companion copy during `nudge`, `barking`, `escaped`, `failed`. `session.events` is the
    session timeline for the Activity tab.
 6. **History from the backend.** Activity uses `GET /api/history` (refetch when
-   a session completes or ends) instead of localStorage. Totals: sum of
+   a session completes, fails, or ends) instead of localStorage. Totals: sum of
    `focused_seconds`, count of `completed`.
 7. **Devices tab reflects reality.**
    - Fido: `robot.online`, `robot.phone_docked`, `robot.mode`, `robot.info`
@@ -64,7 +66,7 @@ API reference: [backend/README.md#api](../backend/README.md#api).
 ```ts
 export type Phase =
   | "idle" | "awaiting_phone" | "focusing" | "nudge"
-  | "barking" | "escaped" | "paused" | "completed";
+  | "barking" | "escaped" | "paused" | "completed" | "failed";
 
 export type RobotMode =
   | "sleep" | "beckon_dock" | "watch" | "nudge"
@@ -116,7 +118,8 @@ export interface HistoryEntry {
 | `focusing` | watching | "You do your thing. Fido's keeping watch." |
 | `nudge` | gentle beckon | "Hey, eyes over here." + reason |
 | `barking` | barking | "Woof! Back to your one thing." + reason |
-| `escaped` | running with phone | "Fido ran off with your phone. Catch it and tap the good-boy card." |
+| `escaped` | running with phone | "Session failed. Catch Fido, then press Stop Fido." |
+| `failed` | resting | "Fido stopped. Press Start again when you're ready for a fresh session." |
 | `paused` | resting | "Take a little breather." |
 | `completed` | celebrating | "Look at you, focused." |
 
