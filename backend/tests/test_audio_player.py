@@ -52,6 +52,28 @@ def test_reconnect_does_not_replay_but_plays_what_is_new():
 # --- silent while the robot speaks ---
 
 
+def test_global_mute_consumes_sequence_without_replay():
+    t = CueTracker()
+    t.decide(snap(None))
+    muted = {**snap(1), "settings": {"voice_enabled": False}}
+    decision = t.decide(muted)
+    assert decision is not None and not decision.play and "muted" in decision.reason
+    assert t.seq == 1
+    assert t.decide(snap(1)) is None
+    assert plays(t, snap(2))
+
+
+def test_muting_stops_current_audio_even_without_new_cue(tmp_path, monkeypatch):
+    speaker = FakeSpeaker()
+    stopped = []
+    monkeypatch.setattr(speaker, "stop", lambda: stopped.append(True), raising=False)
+    fido = Fido("http://x", None, speaker, str(tmp_path))
+    fido.handle(snap(1))
+    fido.handle({**snap(1), "settings": {"voice_enabled": False}})
+    assert stopped == [True]
+    assert speaker.played == []
+
+
 def test_silent_when_robot_online_with_speaker_connected_but_seq_tracked():
     t = CueTracker()
     t.decide(snap(None))

@@ -259,3 +259,32 @@ test("preferences list the device toggle (off) and send Fido's voice to the back
   await dialog.getByRole("checkbox", { name: /^Fido’s voice/ }).click();
   await expect.poll(() => patches).toEqual([{ voice_enabled: false }]);
 });
+
+test("global mute keeps captions and local opt-in without replaying muted cues", async ({ page }) => {
+  await page.addInitScript(() => {
+    const played: string[] = [];
+    (window as unknown as { __played: string[] }).__played = played;
+    HTMLMediaElement.prototype.play = function () { played.push(this.muted ? "muted" : this.src); return Promise.resolve(); };
+  });
+  await withSpeechFeed(page);
+  await page.goto("/");
+  await expect(page.getByRole("status").filter({ hasText: "LIVE" })).toBeVisible();
+  const toggle = page.getByRole("button", { name: "Hear Fido on this device" });
+  await toggle.click();
+  const setVoice = (enabled: boolean) => page.evaluate(on => {
+    const feed = (window as unknown as {
+      __feed: { base: { settings: Record<string, unknown> }; emit(state: unknown): void };
+    }).__feed;
+    feed.base.settings.voice_enabled = on;
+    (window as unknown as FidoWindow).__speak(1, "Caption while globally muted");
+  }, enabled);
+  await setVoice(false);
+  await expect(page.getByTestId("speech-caption")).toContainText("Caption while globally muted");
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  const played = () => page.evaluate(() => (window as unknown as { __played: string[] }).__played);
+  expect(await played()).toEqual(["muted"]);
+  await setVoice(true); // same sequence must not play on unmute
+  expect(await played()).toEqual(["muted"]);
+  await speak(page, 2, "New audible cue");
+  await expect.poll(played).toHaveLength(2);
+});

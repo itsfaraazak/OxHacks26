@@ -39,7 +39,13 @@ for the phone), `start` (phone docked, watching begins), `nudge`, `bark`,
 `run` (escape begins, then repeated every `speech_repeat_seconds` = 25 s while
 escaped), `caught`, `timeout` (escape ended by the 10 minute timer), `praise`
 (refocused before escaping), `done`. When a cue has several clips they rotate
-in order. Setting `voice_enabled` (default `true`) mutes all cues.
+in order. Setting `voice_enabled` to `false` (default `true`) mutes playback,
+not caption events: the full state still emits cues and advances `seq`.
+The frontend shows captions independently of both global mute and its local
+audio opt-in. Frontend and laptop players consume muted sequences without
+playing them, so unmuting does not replay them. Robot command responses retain
+the current `seq` but send empty `clip` and `url` while muted. The firmware's
+sequence gate records these silent events, preventing replay on unmute.
 
 ## Clips
 

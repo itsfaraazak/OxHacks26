@@ -207,23 +207,25 @@ def test_escape_timeout_and_completion_speak(clock: Clock) -> None:
     assert cue(short) == "done"
 
 
-def test_voice_can_be_muted(engine: FocusEngine, clock: Clock) -> None:
+def test_muted_voice_still_emits_caption_events(engine: FocusEngine, clock: Clock) -> None:
     engine.update_settings({"voice_enabled": False})
     engine.robot_event("docked")
     engine.start("Write", 25)
     report(engine, clock, NOT_FOCUSED, 12)
-    assert engine.snapshot()["speech"] is None
+    assert cue(engine) == "run"
+    assert engine.snapshot()["speech"]["seq"] == 4
+    assert engine.snapshot()["speech"]["text"] == CAPTIONS[engine.speech["clip"]]
 
     assert engine.snapshot()["phase"] == "escaped"
     clock.tick(60)
     engine.advance()  # lets devices going stale settle
-    version = engine.version
+    seq = engine.snapshot()["speech"]["seq"]
     clock.tick(60)
     engine.advance()
-    assert engine.version == version  # a muted escape does not spam state changes
+    assert engine.snapshot()["speech"]["seq"] == seq + 1  # captions keep repeating
 
 
-def test_muting_mid_escape_stays_quiet(engine: FocusEngine, clock: Clock) -> None:
+def test_muting_mid_escape_preserves_caption_sequence(engine: FocusEngine, clock: Clock) -> None:
     engine.robot_event("docked")
     engine.start("Write", 60)
     report(engine, clock, NOT_FOCUSED, 12)
@@ -234,8 +236,9 @@ def test_muting_mid_escape_stays_quiet(engine: FocusEngine, clock: Clock) -> Non
     seq = engine.snapshot()["speech"]["seq"]
     clock.tick(60)
     engine.advance()
-    assert engine.version == version
-    assert engine.snapshot()["speech"]["seq"] == seq
+    assert engine.snapshot()["speech"]["seq"] == seq + 1
+    engine.update_settings({"voice_enabled": True})
+    assert engine.snapshot()["speech"]["seq"] == seq + 1  # no new event on unmute
 
 
 # ----- HTTP -----------------------------------------------------------------
@@ -283,3 +286,20 @@ def test_speech_reaches_state_and_robot_command(client) -> None:
 def test_voice_setting_over_http(client) -> None:
     assert client.patch("/api/settings", json={"voice_enabled": False}).json["voice_enabled"] is False
     assert client.patch("/api/settings", json={"speech_repeat_seconds": 0}).status_code == 400
+
+
+def test_muted_robot_commands_consume_sequence_but_state_keeps_captions(client) -> None:
+    client.post("/api/session", json={"task": "x", "duration_minutes": 25})
+    client.patch("/api/settings", json={"voice_enabled": False})
+    before = client.get("/api/state").json["speech"]
+    muted = client.get("/api/robot/command").json["speech"]
+    assert muted["clip"] == "" and muted["seq"] == before["seq"]
+    response = client.post("/api/robot/events", json={"event": "docked"})
+    assert response.status_code == 200
+    assert response.json["speech"]["clip"] == ""
+    after = client.get("/api/state").json["speech"]
+    assert after["seq"] == before["seq"] + 1
+    assert after["text"] == CAPTIONS[after["clip"]]
+    assert response.json["speech"]["seq"] == after["seq"]
+    client.patch("/api/settings", json={"voice_enabled": True})
+    assert client.get("/api/robot/command").json["speech"]["seq"] == after["seq"]

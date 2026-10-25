@@ -225,13 +225,17 @@ def robot_command(snap: dict[str, Any]) -> dict[str, Any]:
 
     The robot must stop its motors when `motion_enabled` is false, and also when
     it has not heard from the server for a few seconds. `speech` is the latest
-    audio cue; play each `seq` once (docs/audio.md).
+    audio cue; play each `seq` once (docs/audio.md). While globally muted,
+    an empty clip consumes the sequence without playing or replaying on unmute.
     """
     session = snap["session"]
+    speech = snap["speech"]
+    if speech is not None and not snap["settings"]["voice_enabled"]:
+        speech = {**speech, "clip": "", "url": ""}
     return {
         "mode": snap["robot"]["mode"],
         "motion_enabled": snap["settings"]["motion_enabled"],
-        "speech": snap["speech"],
+        "speech": speech,
         "task": session["task"] if session else None,
         "remaining_seconds": session["remaining_seconds"] if session else None,
         "reason": session["reason"] if session else None,

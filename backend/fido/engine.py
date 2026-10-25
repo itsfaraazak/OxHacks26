@@ -182,6 +182,8 @@ class FocusEngine:
             created_at=now,
             phase_since=now,
         )
+        self._last_nudge_at = float("-inf")
+        self._nudge_voiced = False
         self._log(now, "Session created")
         self.advance()  # may start watching straight away (phone already docked)
         if self.session.phase is Phase.AWAITING_PHONE:
@@ -405,14 +407,14 @@ class FocusEngine:
         return False, ""
 
     def _say(self, cue: str, now: float) -> bool:
-        """Record that Fido should play a clip for `cue` (see PLAYLIST). Returns False when
-        muted or when the cue has no clips (then Fido is silent for it).
+        """Record a caption/audio event for `cue` (see PLAYLIST). Returns False
+        when the cue has no clips. Global mute gates playback, not captions.
 
         A cue's clips rotate in order. Players speak each `seq` once; they decide how
         (robot speaker, laptop, phone).
         """
         clips = PLAYLIST.get(cue)
-        if not self.settings.voice_enabled or not clips:
+        if not clips:
             return False
         index = self._cue_counts.get(cue, 0) % len(clips)
         self._cue_counts[cue] = index + 1

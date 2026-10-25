@@ -76,13 +76,15 @@ export function useSpeech(snap: { state: FidoState; fresh: boolean } | null, not
 
   useEffect(() => {
     if (!snap) return;
+    const voiceEnabled = snap.state.settings.voice_enabled !== false;
+    if (!voiceEnabled) audio.current?.pause();
     const speech = snap.state.speech ?? null;
     const last = lastSeq.current;
     if (snap.fresh || last === null) { lastSeq.current = speech?.seq ?? 0; return; }
     if (!speech || speech.seq <= last) return;
     lastSeq.current = speech.seq;
     setCaption({ seq: speech.seq, text: speech.text, fading: false });
-    if (!hearRef.current) return;
+    if (!hearRef.current || !voiceEnabled) return;
     const el = element();
     if (!el) return;
     try {

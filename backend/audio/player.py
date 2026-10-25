@@ -98,6 +98,8 @@ class CueTracker:
         cue, clip = str(speech.get("cue")), str(speech.get("clip"))
         if first:
             return Decision(False, cue, clip, "already played before the player started")
+        if (snapshot.get("settings") or {}).get("voice_enabled") is False:
+            return Decision(False, cue, clip, "voice is muted")
         if not CLIP_NAME.fullmatch(clip):
             return Decision(False, cue, clip, "unsafe clip name")
         robot = snapshot.get("robot") or {}
@@ -164,6 +166,8 @@ class Fido:
         return path
 
     def handle(self, snapshot: dict[str, Any]) -> None:
+        if (snapshot.get("settings") or {}).get("voice_enabled") is False and self.speaker is not None:
+            self.speaker.stop()
         decision = self.tracker.decide(snapshot)
         if decision is None:
             return
