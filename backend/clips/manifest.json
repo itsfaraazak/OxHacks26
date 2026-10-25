@@ -1,0 +1,82 @@
+{
+  "output_format": "mp3_22050_32",
+  "clips": [
+    {
+      "name": "dock-1",
+      "cue": "dock",
+      "caption": "Ooh, a new goal! Pop your phone on my back and let's get started!",
+      "bytes": 16405,
+      "duration_seconds": 4.1,
+      "sha256": "0fa4caa13a4dea8470247190cf9990fa9548bd9c6b149f7951daffeb9d2fa3b2",
+      "source": "recorded",
+      "cues": [
+        "dock"
+      ]
+    },
+    {
+      "name": "woof-1",
+      "cue": "start",
+      "cues": [
+        "start",
+        "praise"
+      ],
+      "caption": "Woof!",
+      "bytes": 8568,
+      "duration_seconds": 2.14,
+      "sha256": "312f6207e7bef0ce588a8bae3a53371729aff577da2fb56f89e8ed4662f8d150",
+      "source": "recorded"
+    },
+    {
+      "name": "nudge-1",
+      "cue": "nudge",
+      "caption": "Psst... your task is waiting for you. I believe in you.",
+      "bytes": 8777,
+      "duration_seconds": 2.19,
+      "sha256": "7b0654642d00b97940cff405d09a1ee9b4c638f6c92f0d47c2ddc6c7e1c18d78",
+      "source": "recorded",
+      "cues": [
+        "nudge",
+        "timeout"
+      ]
+    },
+    {
+      "name": "bark-4",
+      "cue": "bark",
+      "caption": "Woof! Woof!",
+      "bytes": 7523,
+      "duration_seconds": 1.88,
+      "sha256": "3961221294f42f4d3809a10bf6eb3cc28d9dcc0c7c3a4623b8ca151b7e362909",
+      "source": "recorded",
+      "cues": [
+        "bark",
+        "caught"
+      ]
+    },
+    {
+      "name": "bark-5",
+      "cue": "bark",
+      "caption": "Woof woof woof!",
+      "bytes": 9091,
+      "duration_seconds": 2.27,
+      "sha256": "2c206131620355ea5432847af77a33de7c0476b708fa96576e48f9b8962b2e9f",
+      "source": "recorded",
+      "cues": [
+        "bark",
+        "run",
+        "done"
+      ]
+    },
+    {
+      "name": "run-5",
+      "cue": "run",
+      "caption": "Grrr... WOOF!",
+      "bytes": 13793,
+      "duration_seconds": 3.45,
+      "sha256": "a0156547436022cf75240b02a5244ba0edd309b388270a591c577c8cdf35e339",
+      "source": "recorded",
+      "cues": [
+        "run"
+      ]
+    }
+  ]
+}

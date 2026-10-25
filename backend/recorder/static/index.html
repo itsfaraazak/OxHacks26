@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fido recording studio</title>
+<style>
+  :root { --bg:#f6f3ec; --card:#fffdf8; --ink:#283229; --muted:#6b7468; --line:#e4dfd2; --lime:#d7ef9c; --lime-d:#c4e07c; --warn:#a4561b; --warn-bg:#fbeedd; --bad:#b3372c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.5 ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:28px 20px 80px; }
+  h1 { font-size:22px; margin:0; } h2 { font-size:24px; margin:0 0 8px; }
+  header { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
+  .sub, small, .muted { color:var(--muted); } small { font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:20px; padding:24px; margin-bottom:16px; }
+  button { font:inherit; font-weight:600; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:999px; padding:10px 20px; cursor:pointer; }
+  button:hover:not(:disabled) { border-color:var(--ink); }
+  td button { white-space:nowrap; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.primary { background:var(--lime); border-color:var(--lime-d); }
+  button.primary:hover:not(:disabled) { background:var(--lime-d); }
+  button.rec { background:#e0463a; border-color:#e0463a; color:#fff; font-size:20px; padding:16px 36px; }
+  button.rec.live { animation:pulse 1.2s infinite; }
+  @keyframes pulse { 50% { box-shadow:0 0 0 10px rgba(224,70,58,.18); } }
+  button.link { background:none; border:none; padding:0; text-decoration:underline; font-weight:400; color:var(--muted); }
+  input[type=text], select { font:inherit; width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:12px; background:#fff; color:var(--ink); }
+  label { display:block; font-weight:600; margin:14px 0 6px; }
+  label.check { display:flex; gap:12px; align-items:flex-start; font-weight:400; background:var(--bg); border-radius:14px; padding:14px; cursor:pointer; }
+  label.check input { width:22px; height:22px; margin-top:3px; accent-color:#283229; }
+  .meter { height:14px; background:var(--line); border-radius:999px; overflow:hidden; position:relative; }
+  .meter i { display:block; height:100%; width:0; background:var(--lime-d); transition:width .06s; }
+  .meter.hot i { background:var(--bad); }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .bar { height:8px; background:var(--line); border-radius:999px; overflow:hidden; margin:6px 0 10px; }
+  .bar i { display:block; height:100%; background:var(--lime-d); }
+  .say { font-size:34px; line-height:1.25; font-weight:700; margin:12px 0; }
+  .dir { color:var(--muted); font-size:17px; }
+  .tag { display:inline-block; background:var(--lime); border-radius:999px; padding:2px 12px; font-size:14px; font-weight:600; }
+  .count { font-size:96px; font-weight:800; text-align:center; line-height:1; margin:8px 0; min-height:96px; }
+  .hint { background:var(--warn-bg); color:var(--warn); border-radius:12px; padding:8px 14px; margin:6px 0; font-size:15px; }
+  .hint.ok { background:#eef7d6; color:#3c5a1d; }
+  .dots { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0 0; }
+  .dots button { width:34px; height:34px; padding:0; font-size:14px; }
+  .dots button.done { background:var(--lime); border-color:var(--lime-d); }
+  .dots button.cur { outline:2px solid var(--ink); }
+  table { width:100%; border-collapse:collapse; } td { padding:8px 6px; border-top:1px solid var(--line); vertical-align:middle; }
+  code, pre { background:#283229; color:#eef7d6; border-radius:10px; font:15px ui-monospace, Menlo, monospace; }
+  pre { padding:14px; overflow:auto; } code { padding:1px 6px; }
+  .err { color:var(--bad); font-weight:600; }
+  .hidden { display:none !important; }
+  details { margin-top:12px; } summary { cursor:pointer; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🐶 Fido recording studio</h1>
+    <small id="who"></small>
+  </header>
+
+  <!-- 1. Setup: privacy, consent, microphone -->
+  <section id="setup">
+    <div class="card" id="consentCard">
+      <h2>Before we start</h2>
+      <p>Thanks for being Fido's voice! You'll record a few dog sounds and some spoken lines. <b>Your recordings stay on this computer until the team creates the voice clone.</b> Nothing is uploaded from this page, and there is no tracking.</p>
+      <label for="name">Your name</label>
+      <input type="text" id="name" autocomplete="name" placeholder="e.g. Dheer" maxlength="100">
+      <label class="check" style="margin-top:16px"><input type="checkbox" id="agree"><span id="statement"></span></label>
+      <p class="err" id="consentErr"></p>
+    </div>
+
+    <div class="card">
+      <h2>Your microphone</h2>
+      <p>Use a <b>quiet room</b>, hold the phone about <b>15 cm from your mouth</b> (or use a headset mic), and make sure <b>no speakers are playing</b>.</p>
+      <label for="mic">Microphone</label>
+      <select id="mic"><option value="">Default microphone</option></select>
+      <div class="row" style="margin-top:14px"><button id="testMic">🎤 Test mic</button><small id="micMsg">Press the button, then say something.</small></div>
+      <div class="meter" style="margin-top:14px"><i id="testLevel"></i></div>
+      <details>
+        <summary>The browser isn't asking for the microphone / says blocked</summary>
+        <p><b>Safari:</b> menu Safari → Settings → Websites → Microphone, set <code>127.0.0.1</code> to Allow, then reload this page.<br>
+        <b>Chrome:</b> click the icon left of the address bar → Site settings → Microphone → Allow, then reload.<br>
+        <b>Mac system:</b> System Settings → Privacy &amp; Security → Microphone, and switch your browser on.</p>
+      </details>
+    </div>
+    <div class="row"><button class="primary" id="begin" disabled>Start recording</button><small id="beginMsg"></small></div>
+  </section>
+
+  <!-- 2. Recorder -->
+  <section id="studio" class="hidden">
+    <div class="card">
+      <div class="row" style="justify-content:space-between"><b id="progress"></b><span class="tag" id="kindTag"></span></div>
+      <div class="bar"><i id="progressBar"></i></div>
+      <div class="dots" id="dots"></div>
+    </div>
+    <div class="card">
+      <div class="say" id="say"></div>
+      <div class="dir" id="dir"></div>
+      <p class="muted" id="range" style="margin-bottom:0"></p>
+    </div>
+    <div class="card">
+      <div class="count" id="count"></div>
+      <div class="meter" id="meterBox"><i id="level"></i></div>
+      <p class="hint hidden" id="clipWarn">Too loud! Back away a little.</p>
+      <div class="row" style="justify-content:center;margin:18px 0 6px">
+        <button class="rec" id="recBtn">● Record</button>
+      </div>
+      <p class="muted" style="text-align:center;margin:0" id="timer">Press the button or the space bar.</p>
+      <div id="result" class="hidden">
+        <div id="hints"></div>
+        <div class="row" style="margin-top:12px">
+          <button id="play">▶ Play back</button>
+          <button id="redo">↺ Redo</button>
+          <button class="primary" id="keep">✓ Keep this take</button>
+        </div>
+      </div>
+      <audio id="player"></audio>
+    </div>
+    <div class="row" style="justify-content:space-between">
+      <button id="prev">← Back</button>
+      <span class="row"><button id="skip">Skip</button><button id="review">Review all</button></span>
+    </div>
+  </section>
+
+  <!-- 3. Review -->
+  <section id="reviewPage" class="hidden">
+    <div class="card">
+      <h2>Review your takes</h2>
+      <table id="reviewTable"></table>
+    </div>
+    <div class="row">
+      <button id="backToStudio">← Back to recording</button>
+      <button class="primary" id="done">Done</button>
+      <small id="doneMsg"></small>
+    </div>
+  </section>
+
+  <!-- 4. Done -->
+  <section id="donePage" class="hidden">
+    <div class="card">
+      <h2>All done. Thank you! 🎉</h2>
+      <p>Your recordings are saved in <code>backend/recordings/</code> and stay on this computer. Tell the team you're finished. They will run these, from the <code>backend/</code> folder:</p>
+      <pre>.venv/bin/python scripts/process_recordings.py
+.venv/bin/python scripts/generate_audio.py --clone</pre>
+      <small>The exact names may be adjusted in <code>backend/README.md</code>; the README is the final word.</small>
+      <p><button id="againBtn">Back to the takes</button></p>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const show = name => ["setup","studio","reviewPage","donePage"].forEach(s => $(s).classList.toggle("hidden", s !== name));
+const api = async (url, opts = {}) => {
+  const r = await fetch(url, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
+  return j;
+};
+const postJSON = (url, body) => api(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+
+let plan = [], consent = null, statement = "", idx = 0;
+
+/* ---------- audio capture: raw PCM -> 16-bit mono WAV, no ffmpeg ---------- */
+const Mic = {
+  ctx: null, stream: null, node: null, deviceId: null, onChunk: null,
+  async open() {
+    const id = $("mic").value;
+    if (this.stream && this.deviceId === id) { await this.ctx.resume(); return; }
+    this.close();
+    const audio = {echoCancellation:false, noiseSuppression:false, autoGainControl:false, channelCount:1};
+    if (id) audio.deviceId = {exact:id};
+    this.stream = await navigator.mediaDevices.getUserMedia({audio});
+    this.deviceId = id;
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    await this.ctx.resume();
+    const src = this.ctx.createMediaStreamSource(this.stream);
+    const send = data => this.onChunk && this.onChunk(data);
+    let ok = false;
+    if (this.ctx.audioWorklet) {
+      try {
+        const code = `class P extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor("pcm",P)`;
+        const url = URL.createObjectURL(new Blob([code], {type:"application/javascript"}));
+        await this.ctx.audioWorklet.addModule(url);
+        this.node = new AudioWorkletNode(this.ctx, "pcm", {numberOfOutputs:0});
+        this.node.port.onmessage = e => send(e.data);
+        src.connect(this.node); ok = true;
+      } catch (e) { console.warn("AudioWorklet unavailable, falling back", e); }
+    }
+    if (!ok) {
+      this.node = this.ctx.createScriptProcessor(4096, 1, 1);
+      this.node.onaudioprocess = e => send(new Float32Array(e.inputBuffer.getChannelData(0)));
+      const mute = this.ctx.createGain(); mute.gain.value = 0;
+      src.connect(this.node); this.node.connect(mute); mute.connect(this.ctx.destination);
+    }
+    await listDevices();   // labels appear once permission is granted
+  },
+  close() {
+    if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+    if (this.ctx) this.ctx.close();
+    this.stream = this.ctx = this.node = null;
+  },
+  get rate() { return this.ctx.sampleRate; },
+};
+
+function peakOf(c) { let p = 0; for (let i = 0; i < c.length; i++) { const a = Math.abs(c[i]); if (a > p) p = a; } return p; }
+function rmsOf(f) { if (!f.length) return 0; let s = 0; for (let i = 0; i < f.length; i++) s += f[i]*f[i]; return Math.sqrt(s / f.length); }
+const dbfs = x => x > 1e-6 ? 20*Math.log10(x) : -120;
+function concat(chunks) {
+  const out = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
+  let o = 0; for (const c of chunks) { out.set(c, o); o += c.length; }
+  return out;
+}
+function encodeWav(f, rate) {
+  const buf = new ArrayBuffer(44 + f.length*2), v = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o+i, s.charCodeAt(i)); };
+  str(0,"RIFF"); v.setUint32(4, 36 + f.length*2, true); str(8,"WAVEfmt ");
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+  str(36,"data"); v.setUint32(40, f.length*2, true);
+  for (let i = 0; i < f.length; i++) { const s = Math.max(-1, Math.min(1, f[i])); v.setInt16(44+i*2, s < 0 ? s*0x8000 : s*0x7fff, true); }
+  return new Blob([buf], {type:"audio/wav"});
+}
+
+/* ---------- level meter ---------- */
+let clipUntil = 0;
+function showLevel(el, box, peak) {
+  const d = dbfs(peak);
+  el.style.width = Math.max(0, Math.min(100, (d + 60) / 60 * 100)) + "%";
+  if (box) box.classList.toggle("hot", peak >= 0.99);
+}
+function meterTick(data) {
+  const p = peakOf(data);
+  showLevel($("level"), $("meterBox"), p);
+  if (p >= 0.99) clipUntil = performance.now() + 1500;
+  $("clipWarn").classList.toggle("hidden", performance.now() > clipUntil);
+}
+
+/* ---------- devices and mic test ---------- */
+async function listDevices() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  const sel = $("mic"), want = sel.value || localStorage.getItem("fido-mic") || "";
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput" && d.deviceId);
+  sel.innerHTML = '<option value="">Default microphone</option>';
+  devs.forEach((d, i) => { const o = document.createElement("option"); o.value = d.deviceId; o.textContent = d.label || `Microphone ${i+1}`; sel.appendChild(o); });
+  if ([...sel.options].some(o => o.value === want)) sel.value = want;
+}
+function explainMicError(e) {
+  if (!navigator.mediaDevices) return "This browser can't use the microphone here. Try Safari or Chrome.";
+  if (e.name === "NotAllowedError") return "Microphone blocked. Open “The browser isn't asking…” below to allow it, then reload.";
+  if (e.name === "NotFoundError") return "No microphone found. Plug one in or pick another from the list.";
+  return "Couldn't open the microphone: " + e.message;
+}
+let micOK = false;
+async function testMic() {
+  $("micMsg").textContent = "Opening the microphone…";
+  try {
+    await Mic.open();
+    localStorage.setItem("fido-mic", $("mic").value);
+    Mic.onChunk = d => showLevel($("testLevel"), null, peakOf(d));
+    micOK = true; $("micMsg").textContent = "Say something: the bar should move. If it does, you're set!";
+  } catch (e) { micOK = false; $("micMsg").textContent = explainMicError(e); }
+  updateBegin();
+}
+$("testMic").onclick = testMic;
+$("mic").onchange = () => { localStorage.setItem("fido-mic", $("mic").value); micOK = false; Mic.close(); updateBegin(); if (!$("studio").classList.contains("hidden")) testMic(); };
+
+/* ---------- consent ---------- */
+function updateBegin() {
+  const hasConsent = !!consent || ($("name").value.trim() && $("agree").checked);
+  $("begin").disabled = !(hasConsent && micOK);
+  $("beginMsg").textContent = !hasConsent ? "Add your name and tick the box first." : !micOK ? "Press “Test mic” first." : "";
+}
+function renderConsent() {
+  $("who").innerHTML = "";
+  $("consentCard").classList.toggle("hidden", !!consent);
+  if (consent) {
+    $("who").append("Recorded as " + consent.name + ", ");
+    const b = document.createElement("button"); b.className = "link"; b.textContent = "change";
+    b.onclick = changePerson; $("who").append(b);
+  }
+  updateBegin();
+}
+async function changePerson() {
+  if (!confirm("Change performer? The next person will need to give their own consent first. Earlier recordings stay in the folder.")) return;
+  await api("/api/consent", {method:"DELETE"});
+  consent = null; $("name").value = ""; $("agree").checked = false; show("setup"); renderConsent();
+}
+$("name").oninput = $("agree").onchange = updateBegin;
+
+$("begin").onclick = async () => {
+  $("consentErr").textContent = "";
+  if (!consent) {
+    try { consent = (await postJSON("/api/consent", {name:$("name").value, agreed:$("agree").checked})).consent; }
+    catch (e) { $("consentErr").textContent = e.message; return; }
+  }
+  renderConsent();
+  await refreshPlan();
+  idx = Math.max(0, plan.findIndex(t => !t.kept));
+  show("studio"); renderTake();
+  roomTone();
+};
+
+/* ---------- room tone: 1 s of silence, saved by the server ---------- */
+async function roomTone() {
+  if (sessionStorage.getItem("fido-room-done")) return;
+  const msg = $("timer"); msg.textContent = "Shhh… measuring your room's quiet for one second.";
+  const chunks = []; Mic.onChunk = d => { chunks.push(d); meterTick(d); };
+  await new Promise(r => setTimeout(r, 1000));
+  Mic.onChunk = meterTick;
+  try {
+    const r = await api("/api/room-tone", {method:"POST", body:encodeWav(concat(chunks), Mic.rate)});
+    sessionStorage.setItem("fido-room-done", "1");
+    roomNoisy = r.noisy;
+    msg.textContent = r.noisy ? "Your room is a bit noisy: try a quieter spot with fans and speakers off." : "Room sounds quiet. Press Record when ready.";
+  } catch (e) { msg.textContent = "Press the button or the space bar."; }
+}
+let roomNoisy = false;
+
+/* ---------- guided takes ---------- */
+async function refreshPlan() { const j = await api("/api/plan"); plan = j.takes; statement = j.statement; consent = j.consent; }
+const fmtRange = s => `Aim for ${s[0]} to ${s[1]} seconds.`;
+function renderTake() {
+  const t = plan[idx];
+  $("progress").textContent = `Take ${idx+1} of ${plan.length}`;
+  $("progressBar").style.width = (plan.filter(p => p.kept).length / plan.length * 100) + "%";
+  $("kindTag").textContent = t.kind === "woof" ? "Dog sound" : t.kind === "line" ? "Spoken line" : "Longer passage";
+  $("say").textContent = t.text;
+  $("dir").textContent = (t.kind === "woof" ? "Make the sound, not the words. " : "") + t.direction;
+  $("range").textContent = fmtRange(t.seconds) + (t.kept ? " ✓ You've kept a take for this one." : "");
+  $("dots").innerHTML = "";
+  plan.forEach((p, i) => {
+    const b = document.createElement("button"); b.textContent = p.kept ? "✓" : i+1; b.title = p.text;
+    b.className = (p.kept ? "done " : "") + (i === idx ? "cur" : ""); b.onclick = () => go(i);
+    $("dots").appendChild(b);
+  });
+  $("prev").disabled = idx === 0;
+  $("skip").textContent = idx === plan.length-1 ? "Finish" : "Skip";
+  resetTake();
+}
+function go(i) { if (state !== "idle") return; idx = i; renderTake(); }
+let state = "idle", last = null;   // last = {blob, url, take}
+function resetTake() {
+  state = "idle"; last = null; $("result").classList.add("hidden"); $("count").textContent = "";
+  $("recBtn").textContent = "● Record"; $("recBtn").classList.remove("live"); $("recBtn").disabled = false;
+  $("timer").textContent = "Press the button or the space bar."; $("level").style.width = "0";
+  $("player").pause();
+}
+
+let chunks = [], total = 0, goAt = 0, started = 0, ticker = null, countTimers = [];
+async function startTake() {
+  if (state !== "idle") return;
+  try { await Mic.open(); } catch (e) { $("timer").textContent = explainMicError(e); return; }
+  state = "counting"; chunks = []; total = 0; goAt = 0; clipUntil = 0; last = null;
+  $("result").classList.add("hidden"); $("recBtn").textContent = "■ Stop"; $("recBtn").disabled = true;
+  Mic.onChunk = d => { chunks.push(d); total += d.length; meterTick(d); };
+  const n = ["3","2","1"];
+  n.forEach((s, i) => countTimers.push(setTimeout(() => $("count").textContent = s, i*800)));
+  countTimers.push(setTimeout(() => {
+    goAt = total; started = performance.now(); state = "recording";
+    $("count").textContent = "🐶"; $("recBtn").disabled = false; $("recBtn").classList.add("live");
+    ticker = setInterval(tickTimer, 100); tickTimer();
+  }, 3*800));
+}
+function tickTimer() {
+  const t = plan[idx], s = (performance.now() - started) / 1000;
+  $("timer").textContent = `Recording… ${s.toFixed(1)}s (aim for ${t.seconds[0]} to ${t.seconds[1]}s). Press Stop or space when done.`;
+}
+async function stopTake() {
+  if (state === "counting") { countTimers.forEach(clearTimeout); countTimers = []; resetTake(); return; }
+  if (state !== "recording") return;
+  state = "saving"; clearInterval(ticker); countTimers = [];
+  await new Promise(r => setTimeout(r, 250));   // let the last audio blocks arrive
+  Mic.onChunk = meterTick;
+  const all = concat(chunks), rate = Mic.rate;
+  const pre = all.subarray(Math.max(0, goAt - Math.round(rate*0.3)), goAt);
+  const take = all.subarray(goAt);
+  $("recBtn").classList.remove("live"); $("recBtn").disabled = true; $("count").textContent = "";
+  $("timer").textContent = "Saving…";
+  if (take.length < rate * 0.1) { resetTake(); $("timer").textContent = "That was too short to hear. Try again."; return; }
+  const blob = encodeWav(take, rate);
+  try {
+    const r = await api("/api/takes/" + encodeURIComponent(plan[idx].slot), {method:"POST", body:blob});
+    last = {blob, url:URL.createObjectURL(blob), take:r.take};
+    const hints = r.hints.slice();
+    const roomDb = dbfs(rmsOf(pre));
+    if (roomDb > -45 && !hints.some(h => /noisy/.test(h.text))) hints.push({level:"warn", text:"There was background noise just before you started. A quieter room helps."});
+    $("hints").innerHTML = "";
+    hints.forEach(h => { const d = document.createElement("div"); d.className = "hint" + (h.level === "ok" ? " ok" : ""); d.textContent = h.text; $("hints").appendChild(d); });
+    $("result").classList.remove("hidden");
+    $("timer").textContent = `Length ${r.analysis.duration.toFixed(1)}s (aim for ${plan[idx].seconds[0]} to ${plan[idx].seconds[1]}s).`;
+    state = "review"; $("recBtn").textContent = "● Record again"; $("recBtn").disabled = false;
+    plan[idx].takes.push(r.take);
+    play(last.url);
+  } catch (e) { state = "idle"; resetTake(); $("timer").textContent = "Couldn't save: " + e.message; }
+}
+function play(url) { const p = $("player"); p.src = url; p.play().catch(() => {}); }
+
+$("recBtn").onclick = () => { if (state === "review") resetTake(), startTake(); else if (state === "idle") startTake(); else stopTake(); };
+$("redo").onclick = () => { resetTake(); startTake(); };
+$("play").onclick = () => last && play(last.url);
+$("keep").onclick = async () => {
+  if (!last) return;
+  try { await postJSON("/api/keep", {slot:plan[idx].slot, take:last.take}); plan[idx].kept = true; }
+  catch (e) { $("timer").textContent = "Couldn't keep: " + e.message; return; }
+  next();
+};
+function next() { if (idx < plan.length-1) { idx++; renderTake(); } else openReview(); }
+$("skip").onclick = () => { if (state === "idle" || state === "review") next(); };
+$("prev").onclick = () => { if (state === "idle" || state === "review") { state = "idle"; go(idx-1); } };
+$("review").onclick = () => { if (state === "idle" || state === "review") openReview(); };
+document.addEventListener("keydown", e => {
+  if (e.code !== "Space" || $("studio").classList.contains("hidden")) return;
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  e.preventDefault();
+  if (!e.repeat) $("recBtn").click();
+});
+
+/* ---------- review ---------- */
+async function openReview() {
+  state = "idle"; await refreshPlan(); show("reviewPage");
+  const t = $("reviewTable"); t.innerHTML = "";
+  plan.forEach((p, i) => {
+    const tr = t.insertRow();
+    tr.insertCell().innerHTML = `<b></b><br><small></small>`;
+    tr.cells[0].querySelector("b").textContent = p.text;
+    tr.cells[0].querySelector("small").textContent = p.slot;
+    const st = tr.insertCell(); st.textContent = p.kept ? "✓ kept" : p.takes.length ? "not kept yet" : "missing"; st.style.color = p.kept ? "#3c5a1d" : "#a4561b";
+    const pl = tr.insertCell();
+    if (p.kept) { const b = document.createElement("button"); b.textContent = "▶ Play"; b.onclick = () => play("/api/audio/" + encodeURIComponent(p.slot) + "/final"); pl.appendChild(b); }
+    const re = tr.insertCell(); const b2 = document.createElement("button"); b2.textContent = p.kept ? "Re-record" : "Record";
+    b2.onclick = () => { idx = i; show("studio"); renderTake(); }; re.appendChild(b2);
+  });
+  const missing = plan.filter(p => !p.kept).length;
+  $("doneMsg").textContent = missing ? `${missing} still missing: you can finish anyway.` : "Everything is recorded!";
+}
+$("backToStudio").onclick = () => { show("studio"); renderTake(); };
+$("done").onclick = () => show("donePage");
+$("againBtn").onclick = () => { show("studio"); renderTake(); };
+
+/* ---------- boot ---------- */
+(async () => {
+  try { await refreshPlan(); } catch (e) { document.body.innerHTML = "<main><p>Can't reach the recorder. Is the terminal window still running?</p></main>"; return; }
+  $("statement").textContent = statement;
+  renderConsent();
+  if (navigator.mediaDevices) listDevices().catch(() => {});
+})();
+</script>
+</body>
+</html>

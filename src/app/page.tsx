@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowRight, ArrowUpRight, BatteryFull, Camera, Check, CircleHelp, Clock3, Dog, Flame, Focus, Hand, HeartPulse, LayoutGrid, Leaf, Pause, Play, Settings2, ShieldCheck, Smartphone, Sparkles, Square, Target, Wifi, WifiOff, X } from "lucide-react";
+import { ArrowRight, ArrowUpRight, BatteryFull, Camera, Check, CircleHelp, Clock3, Dog, Flame, Focus, Hand, HeartPulse, LayoutGrid, Leaf, Pause, Play, Settings2, ShieldCheck, Smartphone, Sparkles, Square, Target, Volume2, VolumeX, Wifi, WifiOff, X } from "lucide-react";
 import { api, apiBase, ApiError, subscribe, type Connection, type FidoState, type HistoryEntry, type Phase, type SessionAction, type Settings } from "@/lib/api";
 import CameraPreview from "./camera-preview";
+import { useSpeech } from "./use-speech";
 
 type Tab = "Focus" | "Activity" | "Devices";
 /** The latest snapshot plus the local time it arrived, for countdown interpolation. */
-type Snapshot = { state: FidoState; receivedAt: number };
+type Snapshot = { state: FidoState; receivedAt: number; fresh: boolean };
 
 const phaseCopy: Record<Phase, [string, string]> = {
   idle: ["Small paws. Big focus.", "Your phone takes a break. You make progress."],
@@ -85,9 +86,10 @@ export default function Home() {
 
   /** Keep the newest snapshot; `fresh` (first after a reconnect) wins even if older, e.g. after a backend restart. */
   const apply = useCallback((state: FidoState, fresh = false) => {
-    setSnap(prev => !fresh && prev && state.version < prev.state.version ? prev : { state, receivedAt: Date.now() });
+    setSnap(prev => !fresh && prev && state.version < prev.state.version ? prev : { state, receivedAt: Date.now(), fresh });
   }, []);
   useEffect(() => subscribe(apply, setConnection), [apply]);
+  const { caption, hearHere, setHear } = useSpeech(snap, setNotice);
 
   const state = snap?.state ?? null;
   const session = state?.session ?? null;
@@ -195,6 +197,7 @@ export default function Home() {
               <div className="card-top"><span className="section-label"><span className="status-dot"/> YOUR FOCUS COMPANION</span><span className="soft-badge">Meet Fido <Sparkles size={12}/></span></div>
               <div className="companion-scene"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="floating-note"><span className="status-dot"/>{floatingNote[phase]}<span className="note-dot">·</span><Dog size={13}/></div><Robot phase={phase}/><span className="scene-spark spark-one">✧</span><span className="scene-spark spark-two">✳</span><div className="ground-label">YOUR PARTNER IN GETTING THINGS DONE</div></div>
               <div className="companion-copy" aria-live="polite"><h2>{phaseCopy[phase][0]}</h2><p>{phaseCopy[phase][1]}</p>{session?.reason && SHOW_REASON.includes(phase) && <p className="companion-reason">{session.reason}</p>}</div>
+              <div className="speech-row"><div className={`speech-bubble ${caption && !caption.fading ? "shown" : ""}`} aria-live="polite" aria-atomic="true" data-testid="speech-caption">{caption && <><Dog size={13} aria-hidden="true"/><span>{caption.text}</span></>}</div><button className="secondary-button speech-toggle" aria-pressed={hearHere} onClick={() => setHear(!hearHere)}>{hearHere ? <Volume2 size={14} aria-hidden="true"/> : <VolumeX size={14} aria-hidden="true"/>}Hear Fido on this device</button></div>
               <div className="companion-footer"><span>{robot?.online ? <Wifi size={14}/> : <WifiOff size={14}/>} {robot?.online ? "Fido online" : "Fido offline"}</span><span><Smartphone size={14}/> {robot?.phone_docked ? "Phone docked" : "Phone not docked"}</span>{typeof robot?.info.battery === "number" && <span><BatteryFull size={16}/> {robot.info.battery}%</span>}<button aria-label="Companion settings" className="icon-button" onClick={openSettings}><Settings2 size={16}/></button></div>
             </section>
             <section className="session-card"><div className="card-top"><span className="section-label">MAKE ROOM FOR DEEP WORK</span><Clock3 size={17}/></div><h2>{canStart ? "What’s your one thing?" : phase === "awaiting_phone" ? "Place your phone on Fido." : phase === "paused" ? "A moment to reset." : phase === "escaped" ? "Go get your phone back." : "Stay with your one thing."}</h2><p className="muted">Big ideas start with a little undivided attention.</p>
@@ -231,6 +234,8 @@ export default function Home() {
     {notice && <div className="toast" role="status"><span>{notice}</span><button className="icon-button" aria-label="Dismiss message" onClick={() => setNotice("")}><X size={16}/></button></div>}
     {modal && <div className="modal-backdrop" onClick={() => setModal(null)}><section className="modal surface" role="dialog" aria-modal="true" aria-labelledby="modal-title" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === "Escape") setModal(null); }}><button autoFocus className="modal-close icon-button" onClick={() => setModal(null)} aria-label="Close dialog"><X size={21}/></button><span className="modal-icon"><Dog size={28}/></span><h2 id="modal-title">{modal === "settings" ? "Make yourself at home." : "Meet your new focus friend."}</h2>{modal === "settings" ? <><p>Changes apply to Fido right away, on every device.</p>{settings ? <>
       {NUMBER_SETTINGS.map(({ key, label: name, hint }) => <label className="setting-row" key={key}><span><strong>{name}</strong><small>{hint}</small></span><input className="number-input" type="number" min={1} max={86400} step={1} aria-label={name} value={drafts[key] ?? String(settings[key])} onChange={e => setDrafts(d => ({ ...d, [key]: e.target.value }))}/></label>)}
+      <label className="setting-row"><span><strong>Fido’s voice</strong><small>Fido speaks at nudges, barks and escapes, on its speaker or the laptop. Turn off to mute everything.</small></span><input type="checkbox" checked={settings.voice_enabled ?? true} disabled={busy} onChange={e => void updateSettings({ voice_enabled: e.target.checked })}/></label>
+      <label className="setting-row"><span><strong>Hear Fido on this device</strong><small>Play Fido’s voice from this phone or computer. Captions always show. Only this device remembers the choice.</small></span><input type="checkbox" checked={hearHere} onChange={e => setHear(e.target.checked)}/></label>
       <label className="setting-row"><span><strong>Start without docking</strong><small>Begin watching without the phone on Fido, e.g. with no robot connected.</small></span><input type="checkbox" checked={!settings.require_dock} disabled={busy} onChange={e => void updateSettings({ require_dock: !e.target.checked })}/></label>
       <label className="setting-row"><span><strong>Fido can move</strong><small>Turn off to keep Fido still. Also an emergency stop.</small></span><input type="checkbox" checked={settings.motion_enabled} disabled={busy} onChange={e => void updateSettings({ motion_enabled: e.target.checked })}/></label>
     </> : <div className="privacy-note"><WifiOff size={19}/><span>Settings live on Fido’s backend, which isn’t reachable right now.</span></div>}<button className="primary-button" disabled={busy} onClick={() => void saveSettings()}>Save <Check size={17}/></button></> : <><p>Fido gives your phone a place to rest so you can do your best work.</p><ol className="help-list"><li>Set one goal for a 25-minute focus session.</li><li>Place your phone on Fido. The clock starts once it’s docked.</li><li>A camera watches for slacking. Fido nudges, barks, then runs off with your phone.</li><li>Running away fails that timer. Catch Fido and press Stop Fido, then Start again when you’re ready for a fresh session.</li></ol><p className="muted">Detection runs next to the camera and only sends yes / no. Vitals come from an optional Presage scan and are not medical measurements.</p><button className="primary-button" onClick={() => setModal(null)}>Sounds good <Check size={17}/></button></>}</section></div>}

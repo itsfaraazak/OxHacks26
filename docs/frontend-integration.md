@@ -50,9 +50,11 @@ API reference: [backend/README.md#api](../backend/README.md#api).
      (e.g. battery when the robot reports it).
    - Cameras: one card per `detector.sources` entry (name, `fresh`,
      `calibrated`, `focused`, `fps`, `reason`). Explain that detection runs on
-     the laptop / dog camera via `python -m detector.agent` and only the YES /
-     NO decision is sent. Remove the in-browser camera preview (it did not
-     analyse anything and the phone is not a camera in this design).
+     the laptop / dog camera via `python -m detector.agent`; decisions and
+     summary metadata, not frames, are sent to the backend. The website's
+     **Show camera** displays the detector's annotated localhost feed, not a
+     separate browser camera capture. It is laptop-local, not available to
+     phones through their own localhost; the phone is not a camera in this design.
    - Vitals (Presage): `vitals.pulse`, `vitals.breathing`, `vitals.hrvRmssd`
      when present, with the note "from a 25-second Presage scan".
 8. **Settings modal** edits backend settings: `bark_after_seconds`,
@@ -122,6 +124,29 @@ export interface HistoryEntry {
 | `failed` | resting | "Fido stopped. Press Start again when you're ready for a fresh session." |
 | `paused` | resting | "Take a little breather." |
 | `completed` | celebrating | "Look at you, focused." |
+
+## Audio and captions
+
+Contract: [audio.md](audio.md). The snapshot carries `speech` (`null` or
+`{seq, cue, clip, text, at, url}`) and `settings` gains `voice_enabled` and
+`speech_repeat_seconds`.
+
+- **Captions** (every device, independent of any audio setting): when `speech.seq`
+  increases, the companion card shows `speech.text` in a speech bubble for about
+  6 s, then fades (`aria-live="polite"`). The first snapshot after loading or
+  reconnecting only records `seq`, so a reload never shows or plays old speech.
+- **Phone audio is opt-in.** "Hear Fido on this device" (button under the caption
+  and a checkbox in Preferences) is off by default. Turning it on happens in a tap
+  that primes a single `Audio` element with a muted silent clip, because phones
+  block autoplay. After that each new cue's clip (`speech.url`, made absolute with
+  `speechUrl()` from `NEXT_PUBLIC_FIDO_API`) plays once and interrupts the previous
+  one. Blocked playback or a 404 shows a small toast and never throws.
+  The choice is remembered only in this browser's `localStorage`
+  (`fido-hear-on-this-device`); after a reload the first tap anywhere re-primes audio.
+- **"Fido's voice"** in Preferences is the backend setting `voice_enabled`
+  (`PATCH /api/settings`); it mutes every player, not just this device.
+- Code: `src/app/use-speech.ts`. Tests inject cues by replacing `EventSource`
+  (see `tests/focus.spec.ts`), so they need no audio and no `speech` from the backend.
 
 ## Testing without hardware
 

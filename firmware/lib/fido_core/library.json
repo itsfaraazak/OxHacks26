@@ -1,0 +1,7 @@
+{
+  "name": "fido_core",
+  "version": "0.1.0",
+  "description": "Pure (no Arduino calls) Fido logic: motor safety, protocol parsing, audio decoding. Unit-tested on the host.",
+  "build": {"flags": ["-std=gnu++17"]},
+  "dependencies": [{"name": "ArduinoJson", "version": "7.4.3"}]
+}

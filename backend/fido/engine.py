@@ -23,6 +23,8 @@ from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
 from typing import Any, Callable
 
+from .speech import CAPTIONS, PLAYLIST
+
 
 class Phase(str, Enum):
     IDLE = "idle"  # no session
@@ -59,6 +61,7 @@ SOURCE_NAME = re.compile(r"[A-Za-z0-9_-]{1,32}")
 MAX_SESSION_EVENTS = 50
 MAX_HISTORY = 100
 DEFAULT_DURATION_MINUTES = 25
+NUDGE_COOLDOWN_SECONDS = 15.0
 
 
 class EngineError(ValueError):
@@ -81,6 +84,8 @@ class Settings:
     robot_offline_seconds: float = 5.0  # robot shown offline after this silence
     require_dock: bool = True  # False: start without NFC docking (no hardware)
     motion_enabled: bool = True  # robot may drive; turn off to keep Fido still (e.g. on a crowded table)
+    voice_enabled: bool = True  # Fido speaks and barks; off mutes every cue
+    speech_repeat_seconds: float = 25.0  # how often the angry line repeats while Fido runs away
 
     def update(self, changes: dict[str, Any]) -> None:
         """Validate every change first, then apply all of them or none."""
@@ -148,6 +153,12 @@ class FocusEngine:
         # Incremented on every change; the web app broadcasts when it moves.
         self.version = 0
         self._last_liveness: tuple[bool, ...] = ()
+        # The latest thing Fido said (see docs/audio.md). `seq` grows with each new cue.
+        self.speech: dict[str, Any] | None = None
+        self._speech_seq = 0
+        self._cue_counts: dict[str, int] = {}
+        self._last_nudge_at = float("-inf")
+        self._nudge_voiced = False  # a spoken nudge is awaiting its "good human"
 
     # ----- commands from the app -------------------------------------------
 
@@ -172,8 +183,10 @@ class FocusEngine:
             phase_since=now,
         )
         self._log(now, "Session created")
+        self.advance()  # may start watching straight away (phone already docked)
+        if self.session.phase is Phase.AWAITING_PHONE:
+            self._say("dock", now)
         self._changed()
-        self.advance()
 
     def apply(self, action: str) -> None:
         """pause | resume | caught | end"""
@@ -200,6 +213,7 @@ class FocusEngine:
             self._back_to_focusing(now, "Resumed")
         elif action == "caught":
             self._caught(now, "Caught (marked in app)")
+            self._say("caught", now)
         else:
             raise InvalidInput(f"Unknown action: {action}")
         self._changed()
@@ -230,6 +244,7 @@ class FocusEngine:
             # The NFC "good boy" card only means something during an escape.
             if s is not None and s.phase is Phase.ESCAPED:
                 self._caught(now, "Caught (robot stop button)")
+                self._say("caught", now)
                 self._changed()
         self.advance()
 
@@ -277,17 +292,23 @@ class FocusEngine:
             self._changed()
         if s is not None and s.phase is Phase.AWAITING_PHONE and (self.phone_docked or not st.require_dock):
             self._enter(Phase.FOCUSING, now, "Phone docked" if self.phone_docked else "Started without docking")
+            self._say("start", now)
             self._changed()
         if s is not None and s.phase is Phase.ESCAPED:
             if now - s.phase_since >= st.escape_timeout_seconds:
                 self._stop_escape(now, "Escape timed out; Fido stopped")
+                self._say("timeout", now)
                 self._changed()
+            elif self.speech and self.speech["cue"] == "run" and now - self.speech["at"] >= st.speech_repeat_seconds:
+                if self._say("run", now):  # keep taunting while the user chases Fido
+                    self._changed()
             return
         if s is None or s.phase not in ACTIVE_PHASES:
             return
 
         if s.remaining_seconds(now) <= 0:
             self._enter(Phase.COMPLETED, now, "Time's up. Well done!")
+            self._say("done", now)
             self._archive(s, now, completed=True)
             self._changed()
             return
@@ -296,6 +317,9 @@ class FocusEngine:
         if not distracted or now < s.grace_until:
             if s.phase in (Phase.NUDGE, Phase.BARKING):
                 self._enter(Phase.FOCUSING, now, "Back on track")
+                if self._nudge_voiced:
+                    self._say("praise", now)
+                self._nudge_voiced = False
                 self._changed()
             return
 
@@ -303,11 +327,17 @@ class FocusEngine:
         if s.phase is Phase.FOCUSING:
             s.distractions += 1
             self._enter(Phase.NUDGE, now, reason)
+            # A flickering camera must not make Fido chatter: one spoken nudge per NUDGE_COOLDOWN_SECONDS.
+            if now - self._last_nudge_at >= NUDGE_COOLDOWN_SECONDS and self._say("nudge", now):
+                self._last_nudge_at = now
+                self._nudge_voiced = True
         elif s.phase is Phase.NUDGE and in_phase >= st.bark_after_seconds:
             self._enter(Phase.BARKING, now, reason)
+            self._say("bark", now)
         elif s.phase is Phase.BARKING and in_phase >= st.escape_after_seconds:
             s.escapes += 1
             self._enter(Phase.ESCAPED, now, reason)
+            self._say("run", now)
         elif s.reason != reason:
             s.reason = reason  # same phase, newer explanation
         else:
@@ -359,6 +389,7 @@ class FocusEngine:
                 "sources": sources,
             },
             "vitals": self.vitals,
+            "speech": self.speech,
             "settings": asdict(self.settings),
         }
 
@@ -372,6 +403,30 @@ class FocusEngine:
             if r.calibrated and not r.focused and now - r.received_at <= self.settings.source_stale_seconds:
                 return True, f"{r.reason} [{name}]"
         return False, ""
+
+    def _say(self, cue: str, now: float) -> bool:
+        """Record that Fido should play a clip for `cue` (see PLAYLIST). Returns False when
+        muted or when the cue has no clips (then Fido is silent for it).
+
+        A cue's clips rotate in order. Players speak each `seq` once; they decide how
+        (robot speaker, laptop, phone).
+        """
+        clips = PLAYLIST.get(cue)
+        if not self.settings.voice_enabled or not clips:
+            return False
+        index = self._cue_counts.get(cue, 0) % len(clips)
+        self._cue_counts[cue] = index + 1
+        self._speech_seq += 1
+        clip = clips[index]
+        self.speech = {
+            "seq": self._speech_seq,
+            "cue": cue,
+            "clip": clip,
+            "text": CAPTIONS[clip],
+            "at": now,
+            "url": f"/api/audio/{clip}.mp3",
+        }
+        return True
 
     def _liveness(self, now: float) -> tuple[bool, ...]:
         stale = self.settings.source_stale_seconds

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 function child(seconds = '0.15', extraEnv = {}) {
   const processChild = spawn(process.execPath, [
-    '--experimental-loader', fileURLToPath(new URL('./test-fixtures/loader.mjs', import.meta.url)),
+    '--experimental-loader', new URL('./test-fixtures/loader.mjs', import.meta.url).href,
     fileURLToPath(new URL('./bridge.mjs', import.meta.url)), seconds,
   ], {
     env: { ...process.env, SMARTSPECTRA_API_KEY: 'test-not-a-secret', ...extraEnv },

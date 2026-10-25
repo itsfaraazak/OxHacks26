@@ -152,3 +152,110 @@ test("unavailable camera preview offers retry without breaking session controls"
   await expect(page.getByRole("button", { name: "retry preview" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Let’s focus" })).toBeEnabled();
 });
+
+// --- Fido's voice: captions and opt-in phone audio ------------------------------------------
+// These tests replace EventSource with a stand-in that starts from the real backend's /api/state
+// and lets the test inject `speech` cues, so they pass whether or not the backend emits them yet.
+type FidoWindow = Window & { __speak(seq: number, text: string): void };
+async function withSpeechFeed(page: import("@playwright/test").Page, first?: { seq: number; text: string }) {
+  await page.addInitScript(initial => {
+    const speech = (seq: number, text: string) => ({ seq, cue: "nudge", clip: "nudge-1", text, at: Date.now() / 1000, url: "/api/audio/nudge-1.mp3" });
+    class FakeEventSource extends EventTarget {
+      static CLOSED = 2;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      base: Record<string, unknown> | null = null;
+      constructor(readonly url: string) {
+        super();
+        fetch(url.replace("/api/events", "/api/state")).then(r => r.json()).then(state => {
+          this.base = { ...state, speech: initial ? speech(initial.seq, initial.text) : null };
+          this.readyState = 1;
+          this.onopen?.();
+          this.emit(this.base);
+        });
+        (window as unknown as { __feed: FakeEventSource }).__feed = this;
+      }
+      emit(state: unknown) { this.dispatchEvent(new MessageEvent("state", { data: JSON.stringify(state) })); }
+      close() {}
+    }
+    (window as unknown as { EventSource: unknown }).EventSource = FakeEventSource;
+    (window as unknown as FidoWindow).__speak = (seq, text) => {
+      const feed = (window as unknown as { __feed: FakeEventSource }).__feed;
+      feed.emit({ ...feed.base, version: (feed.base!.version as number) + seq, speech: speech(seq, text) });
+    };
+  }, first ?? null);
+}
+const speak = (page: import("@playwright/test").Page, seq: number, text: string) =>
+  page.evaluate(([n, t]) => (window as unknown as FidoWindow).__speak(n as number, t as string), [seq, text]);
+
+test("caption shows for a new cue, not for the speech already in the first snapshot, then fades", async ({ page }) => {
+  await withSpeechFeed(page, { seq: 5, text: "Old line from before the reload" });
+  await page.goto("/");
+  await expect(page.getByRole("status").filter({ hasText: "LIVE" })).toBeVisible();
+  const caption = page.getByTestId("speech-caption");
+  await expect(caption).toHaveAttribute("aria-live", "polite");
+  await expect(page.getByText("Old line from before the reload")).toHaveCount(0);
+
+  await speak(page, 5, "Old line from before the reload"); // same seq again: still not a new cue
+  await expect(page.getByText("Old line from before the reload")).toHaveCount(0);
+
+  await speak(page, 6, "Hey... eyes back on the prize?");
+  await expect(caption).toBeVisible();
+  await expect(caption).toContainText("Hey... eyes back on the prize?");
+  await expect(caption).toBeHidden({ timeout: 9000 }); // about 6 s, then it fades
+});
+
+test("hearing Fido on this device is off by default, opt-in, and plays each cue once", async ({ page }) => {
+  await page.addInitScript(() => {
+    const played: string[] = [];
+    (window as unknown as { __played: string[] }).__played = played;
+    HTMLMediaElement.prototype.play = function () { played.push(this.muted ? "muted" : this.src); return Promise.resolve(); };
+  });
+  await withSpeechFeed(page, { seq: 1, text: "First" });
+  await page.goto("/");
+  await expect(page.getByRole("status").filter({ hasText: "LIVE" })).toBeVisible();
+  const toggle = page.getByRole("button", { name: "Hear Fido on this device" });
+  const played = () => page.evaluate(() => (window as unknown as { __played: string[] }).__played);
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  expect(await page.evaluate(() => localStorage.length)).toBe(0);
+
+  await speak(page, 2, "Muted for audio, but captioned"); // off: caption only
+  await expect(page.getByTestId("speech-caption")).toContainText("captioned");
+  expect(await played()).toEqual([]);
+
+  await toggle.click(); // the tap that unlocks audio
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  expect(await played()).toEqual(["muted"]);
+
+  await speak(page, 3, "Third");
+  await speak(page, 3, "Third");
+  await speak(page, 2, "Older");
+  const backend = new URL(`http://localhost:${process.env.FIDO_TEST_BACKEND_PORT ?? "5000"}`).origin;
+  expect(await played()).toEqual(["muted", `${backend}/api/audio/nudge-1.mp3`]);
+  const clip = await page.request.get(`${backend}/api/audio/nudge-1.mp3`);
+  expect(clip.ok()).toBeTruthy();
+  expect(clip.headers()["content-type"]).toContain("audio/mpeg");
+  expect((await clip.body()).length).toBeGreaterThan(0);
+
+  await toggle.click();
+  await speak(page, 4, "Fourth");
+  expect(await played()).toHaveLength(2);
+});
+
+test("preferences list the device toggle (off) and send Fido's voice to the backend", async ({ page }) => {
+  await withSpeechFeed(page);
+  const patches: unknown[] = [];
+  await page.route(`${API}/api/settings`, route => {
+    if (route.request().method() !== "PATCH") return route.fallback();
+    patches.push(route.request().postDataJSON());
+    return route.fulfill({ json: {} });
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Preferences" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("checkbox", { name: /Hear Fido on this device/ })).not.toBeChecked();
+  await dialog.getByRole("checkbox", { name: /^Fido’s voice/ }).click();
+  await expect.poll(() => patches).toEqual([{ voice_enabled: false }]);
+});

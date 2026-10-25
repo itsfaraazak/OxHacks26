@@ -31,6 +31,14 @@ export interface Settings {
   escape_timeout_seconds: number; recover_grace_seconds: number;
   source_stale_seconds: number; robot_offline_seconds: number;
   require_dock: boolean; motion_enabled: boolean;
+  voice_enabled: boolean; speech_repeat_seconds: number;
+}
+
+/** The latest thing Fido said (docs/audio.md). `seq` increases by one per cue; `null` until the first. */
+export interface Speech {
+  seq: number; cue: string; clip: string; text: string; at: number;
+  /** Path of the MP3 on the backend, e.g. `/api/audio/nudge-2.mp3`; see `speechUrl`. */
+  url: string;
 }
 
 export interface FidoState {
@@ -48,6 +56,7 @@ export interface FidoState {
   };
   vitals: null | { pulse?: number; breathing?: number; hrvRmssd?: number; [k: string]: unknown };
   settings: Settings;
+  speech: Speech | null;
 }
 
 export interface HistoryEntry {
@@ -64,6 +73,11 @@ export function apiBase(): string {
   if (configured) return configured.replace(/\/+$/, "");
   const host = typeof window === "undefined" ? "localhost" : window.location.hostname;
   return `http://${host.includes(":") ? `[${host}]` : host}:5000`;
+}
+
+/** Absolute URL of a cue's MP3: `speech.url` is relative to the backend, not to this page. */
+export function speechUrl(speech: Pick<Speech, "url">): string {
+  return /^https?:\/\//.test(speech.url) ? speech.url : `${apiBase()}${speech.url}`;
 }
 
 /** A response with an error status. `state` is present on 409, so the caller can resync. */

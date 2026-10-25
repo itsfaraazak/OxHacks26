@@ -1,0 +1,8 @@
+# Name,    Type, SubType, Offset,   Size,     Flags
+# ESP32-DevKit-V1, 4 MB flash. No OTA (keeps room for audio).
+nvs,       data, nvs,     0x9000,   0x5000,
+phy_init,  data, phy,     0xf000,   0x1000,
+factory,   app,  factory, 0x10000,  0x260000,
+# Raw audio clips, written by `pio run -t uploadaudio` (see firmware/README.md).
+audio,     data, 0x40,    0x270000, 0x180000,
+coredump,  data, coredump,0x3F0000, 0x10000,

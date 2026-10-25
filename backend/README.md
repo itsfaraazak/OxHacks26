@@ -200,6 +200,30 @@ Offline tests (no camera, API key, authentication or credits):
 (cd presage && npm test)
 ```
 
+### Laptop audio player
+
+`audio/player.py` plays Fido's spoken cues (`state.speech`, see
+[`docs/audio.md`](../docs/audio.md)) on the laptop. It is the fallback for the
+robot's Bluetooth speaker, not a second voice:
+
+```sh
+.venv/bin/python -m audio.player --server http://localhost:5000
+.venv/bin/python -m audio.player --dry-run   # print and download cues, make no sound
+```
+
+- It follows `GET /api/events`, plays each cue exactly once (the highest
+  `speech.seq` is remembered), and only records `seq` on its first snapshot
+  after starting or reconnecting, so a restart never replays old speech.
+- **Silent while `robot.online` is true and `robot.info.speaker == "connected"`**;
+  otherwise it plays. Skipped cues are never replayed later.
+- A new cue cuts off the clip still playing. Clips are downloaded once from
+  `/api/audio/<clip>.mp3` into a temporary directory removed on exit.
+- Uses a system player, no Python dependency: `afplay` (macOS, built in), else
+  `ffplay` (ffmpeg, any OS), else `mpg123`. With none installed it exits with
+  a message. `aplay` and `paplay` cannot play MP3, so they are not used.
+- Sends `Authorization: Bearer $FIDO_DEVICE_TOKEN` when that is set. There is no
+  volume option; use the system volume.
+
 ### Presage vitals
 
 The same setup as the prototype:
@@ -228,6 +252,239 @@ Getting real numbers out of the 25-second scan (from testing):
   empty (`null`, shown as `--`).
 - The webcam must be free: stop `detector.agent` while the scan runs, since
   both open the same camera.
+
+## Fido's voice (recorded clips)
+
+Fido's voice is **six recordings of our friend Dheer, and nothing else**: no
+AI-generated voice, no voice clone. The running server never generates audio.
+The clips are in `clips/` (MP3, mono, 22.05 kHz, 32 kbps):
+
+| Clip | Says |
+| --- | --- |
+| `dock-1` | "Ooh, a new goal! Pop your phone on my back and let's get started!" |
+| `nudge-1` | "Psst... your task is waiting for you. I believe in you." |
+| `bark-4` | "Woof! Woof!" |
+| `bark-5` | "Woof woof woof!" |
+| `run-5` | "Grrr... WOOF!" |
+| `woof-1` | "Woof!" |
+
+How they were made:
+
+1. **Record** with `.venv/bin/python -m recorder` (see "Recording a voice
+   actor" below). The plan, `fido/recording.py`, is these six takes.
+2. **Process** with `.venv/bin/python scripts/process_recordings.py
+   --accept-redo woof-1,woof-2,woof-3` (see "Processing the recordings").
+   `--accept-redo` is needed because those woofs clip a little, by choice, and
+   would otherwise get a `REDO` verdict and not be written.
+3. Commit `clips/*.mp3` (and `clips/manifest.json`).
+
+**Which clip plays when** is one table, `PLAYLIST` in `fido/speech.py`: cue ->
+list of clip names. A clip may appear under several cues; a cue that is missing
+or empty is silent; a cue's clips rotate in order. Current table:
+
+| Cue | Clips |
+| --- | --- |
+| `dock` | `dock-1` |
+| `start` | `woof-1` |
+| `nudge` | `nudge-1` |
+| `bark` | `bark-4`, `bark-5` |
+| `run` | `run-5`, `bark-5` (repeats every `speech_repeat_seconds`) |
+| `caught` | `bark-4` |
+| `timeout` | `nudge-1` |
+| `praise` | `woof-1` |
+| `done` | `bark-5` |
+
+To reuse clips differently, edit the table. The caption the app shows comes
+from `CAPTIONS` (the words of each clip) in the same file; **a caption must
+match what the clip actually says**, so update it if you replace a recording.
+`GET /api/audio` lists only the clips that are in the playlist.
+
+**Privacy.** The clips are Dheer's voice. Committing and pushing them publishes
+his voice. He consented to that for this hackathon project only; the consent
+record is `recordings/consent.json`. The raw takes in `recordings/` are
+gitignored and are never committed.
+
+## Optional: generated or cloned voice (not used)
+
+> **Not used.** Fido plays only the recorded clips above. This section and
+> `scripts/generate_audio.py` are kept in the repository for a possible future
+> AI voice. The generator works from the full line script in `fido/speech.py`
+> (`SCRIPT`), not from the playlist, so **running it would generate lines that
+> are not in the playlist** (and spend credits on them). The clone steps also
+> refer to the earlier, larger recording plan; the current plan is six takes.
+
+When used, the lines and woofs would be pre-generated ElevenLabs clips (see
+[`docs/audio.md`](../docs/audio.md)); the running server never calls
+ElevenLabs. Only the fixed script in `fido/speech.py` is sent to ElevenLabs:
+**no task text or other user input is ever sent.** Only whoever regenerates the
+clips needs a key.
+
+```sh
+cp .env.example .env            # then put your key after ELEVENLABS_API_KEY= (gitignored)
+
+.venv/bin/python scripts/generate_audio.py --dry-run          # cost only: no network, no key
+.venv/bin/python scripts/generate_audio.py                    # generate the missing clips
+.venv/bin/python scripts/generate_audio.py --only nudge,run --force   # redo some cues
+.venv/bin/python scripts/generate_audio.py --limit 3          # try a few first
+```
+
+The key can also be exported as `ELEVENLABS_API_KEY`; it is never printed or
+written to a tracked file. Output goes to `clips/`: `<clip>.mp3`, `voice.json`
+(the non-secret Voice Design `voice_id`, reused on later runs so every clip has
+the same voice) and `manifest.json` (name, cue, caption, bytes, duration,
+sha256). Existing clips are skipped unless `--force`.
+
+- **Voice**: created on the first run with Voice Design (a young, squeaky,
+  cheeky puppy). It takes one of the 3 custom voice slots of a free plan.
+  `--voice-id <id>` uses an existing voice; `--redesign` makes a new one.
+  To hear candidates first and pick one, use the audition workflow below.
+- **Speech lines** use `eleven_v3` (audio tags like `[whimpers]`) with low
+  stability; **sound effects** (woofs, growls) use the sound-generation API at
+  2.5 s each.
+- **Format** is `mp3_22050_32` (smallest offered, about 4 KB per second) because
+  the clips end up in the ESP32's flash; change it with `--format`.
+- **Cost** for the whole library, from `--dry-run` on an empty `clips/`:
+  1,802 characters of speech plus 3 sound effects, about **2,100 credits** for
+  the clips, plus about **180** once for the voice preview (about 2,280 in
+  total). Credits are an estimate (about 1 per character, 40 per second of
+  effect); check your plan's balance. Regenerating one cue costs a few hundred
+  at most.
+- A 429 or 5xx is retried once; a failed clip never leaves a partial file, and
+  already-finished clips are kept.
+
+### Cloning Dheer's voice (recorded barks and lines)
+
+The preferred voice is an **Instant Voice Clone** of our friend Dheer, so the
+~21 lines we do not record can be generated in his dog voice. The takes and the
+woofs are real recordings; only the rest is generated.
+
+1. **Record** with the recorder app (`backend/recorder/`). It writes
+   `recordings/consent.json` (his name and `agreed_at`) and the takes.
+2. **Process**: `.venv/bin/python scripts/process_recordings.py` cleans the takes
+   into `clips/` (final clips, `clips/ingredients/<woof>.mp3`) and
+   `recordings/clone-samples/*.wav`.
+3. **Clone**: `.venv/bin/python scripts/generate_audio.py --clone --dry-run` lists
+   the samples, their total length and size (no network, no key); then drop
+   `--dry-run`. It posts the samples to `POST /v1/voices/add` and writes
+   `clips/voice.json` (`voice_id`, `source: "instant-voice-clone"`, sample names,
+   the consent name and date; not a secret). Options: `--clone-name` (default
+   "Fido (Dheer)") and `--remove-background-noise` (off by default: on clean
+   samples it can make the clone worse).
+4. **Try** `generate_audio.py --limit 3`, listen, then run it without `--limit`.
+
+- **Consent**: `--clone` refuses to run unless `recordings/consent.json` has
+  `agreed_at`. His recordings are sent to ElevenLabs only by this command.
+- **Plan**: Instant Voice Cloning needs a **paid ElevenLabs plan** (our MLH
+  Creator code includes it) and uses a voice slot. ElevenLabs recommends 1 to
+  2 minutes of clean audio (under 3), each file at least 5 s; the command warns
+  below 60 s and fails on an empty folder. If `clone-samples/` is missing it
+  uses `recordings/<slot>/final.wav` of the takes meant for the clone.
+- **Model and settings**: when `voice.json` says `instant-voice-clone`, speech
+  uses `eleven_v4` (documented as the best for Instant Voice Clones and for audio
+  tags) with stability 0.5, similarity 0.8, style 0, speaker boost on. Otherwise
+  `eleven_v3` with stability 0. Override the model with `--model`.
+- **Recorded barks**: when `clips/ingredients/<name>.mp3` exists for a line's
+  bark (`fido.speech.RECORDED_BARKS`), the line is that recording joined to the
+  speech with ffmpeg; no sound-effects call, and its 100-credit estimate drops
+  (the dry run says `speech + recorded bark`). Missing ingredients still use
+  generated barks. `bark-4`, `bark-5` and `run-5` are recorded directly as final
+  clips; they are skipped when they exist.
+- **Never overwrite recordings**: clips written by this script get
+  `"source": "generated"` in `clips/manifest.json`; the recording script writes
+  `"source": "recorded"`. Recorded clips are skipped even with `--force` unless
+  you also pass `--overwrite-recorded`. Other manifest entries and keys are kept
+  when the manifest is rewritten.
+
+### Choosing the voice by ear (audition)
+
+Voice Design returns several previews per request, and you only pay for the
+preview text, so you can listen before committing credits and a voice slot:
+
+```sh
+.venv/bin/python scripts/generate_audio.py --audition --dry-run   # cost only
+.venv/bin/python scripts/generate_audio.py --audition             # 1. design candidates
+afplay clips/auditions/bulldog-1.mp3                              # 2. listen (macOS; any player works)
+.venv/bin/python scripts/generate_audio.py --choose <generated_voice_id>   # 3. save the one you like
+.venv/bin/python scripts/generate_audio.py --force                # 4. regenerate the clips with it
+```
+
+- `--audition` calls `POST /v1/text-to-voice/design` once for each description
+  in `AUDITION_DESCRIPTIONS` (a cartoon bulldog, a goofy golden retriever, an
+  old sheepdog; all deep) with the same preview text, and saves **every**
+  returned preview as `clips/auditions/<candidate>-<n>.mp3`. `index.json` there
+  lists each file with its description and `generated_voice_id`. It saves no
+  voice (no slot used) and never touches `voice.json`. The folder is
+  gitignored. A new audition replaces the previous one.
+- `--choose <generated_voice_id>` checks the id is in `index.json`, saves it with
+  `POST /v1/text-to-voice` (name `Fido`, a slot on a free plan) and writes its
+  `voice_id` to `clips/voice.json`, replacing the old one. Existing clips keep
+  the old voice until regenerated with `--force` (about 2,100 credits).
+- **Cost**: the preview text length per design request (177 characters, so about 177 credits), so
+  about 531 credits for the three candidates, however many previews each
+  returns. `--choose` costs no credits. Both take `--dry-run` (no network, no
+  key).
+- **Previews are temporary.** ElevenLabs' docs do not say how long a
+  `generated_voice_id` stays valid, so choose soon after auditioning; if
+  `--choose` fails because it is gone, run `--audition` again (it makes
+  different voices, so listen again).
+
+## Recording a voice actor
+
+A small local studio for recording Fido's voice (the plan is `fido/recording.py`). From `backend/`:
+
+```bash
+.venv/bin/python -m recorder          # opens http://127.0.0.1:5100/ ; --port N to change
+```
+
+The page asks for the performer's name and consent first (saved to `recordings/consent.json`; the server refuses uploads without it), then walks through each take with a count-in, level meter, playback, redo and keep. It gives gentle hints (too quiet, clipping, too long or short, noisy room) but never blocks.
+
+Tips: a quiet room, phone 15 cm from the mouth or a headset mic, no speakers playing. Allow microphone access when the browser asks (Safari: Settings → Websites → Microphone; Chrome: the icon left of the address bar).
+
+Files go to `recordings/<slot>/take-<n>.wav` (earlier takes are never overwritten), the chosen one is copied to `recordings/<slot>/final.wav`, and a 1 s room sample to `recordings/_room-tone.wav`. WAVs are encoded in the browser, so no ffmpeg is needed. Afterwards run `scripts/process_recordings.py` (see "Fido's voice (recorded clips)" above).
+
+Privacy: the server binds only to `127.0.0.1`, rejects cross-origin requests, has no analytics and uploads nothing. `recordings/` is gitignored and its raw takes are never committed. The recordings stay on the computer unless someone runs the optional, unused voice-clone command.
+
+
+## Processing the recordings
+
+Dheer's raw takes (`recordings/<slot>/final.wav`, the six in `fido/recording.py`) become
+the finished clips the app and firmware play directly. No AI and no network;
+needs `ffmpeg` (`brew install ffmpeg`). `recordings/consent.json` must contain
+`agreed_at`, otherwise the script refuses to run.
+
+```sh
+.venv/bin/python scripts/process_recordings.py --check    # validate only, writes nothing
+.venv/bin/python scripts/process_recordings.py            # clean, encode, write clips + manifest
+.venv/bin/python scripts/process_recordings.py --only woof-1,dock-1 --force
+.venv/bin/python scripts/process_recordings.py --accept-redo woof-1,woof-2,woof-3   # what we ran
+```
+
+`--accept-redo SLOTS` (comma-separated take names) processes takes whose
+verdict is `REDO` anyway, because you listened and accept them on purpose. We
+use it for the woofs, which clip a little by choice. An unknown slot name is an
+error. Do not use it for a take you have not listened to.
+
+Other options: `--dry-run`, `--denoise` (gentle `afftdn`, off by default because
+it makes voices watery), `--recordings-dir`, `--clips-dir`. Takes without a
+`final.wav` are skipped, nothing is ever deleted, and outputs newer than
+`final.wav` are skipped unless `--force`.
+
+Per take: high-pass at 70 Hz, trim silence (keeps 80 ms before and 200 ms after),
+two-pass EBU R128 loudness (spoken lines -16 LUFS, dog sounds -14 LUFS, true peak
+-1.5 dB), 10 ms fade-in and 60 ms fade-out, then mono 22.05 kHz 32 kbps CBR MP3
+with no ID3 header (same as `generate_audio.py`). Output goes to
+`clips/<clip>.mp3` (plus `clips/ingredients/<name>.mp3` for takes that define an
+ingredient); `clips/manifest.json` is updated and recorded clips get
+`"source": "recorded"`.
+
+The report gives each take a verdict. Warnings are advice (exit code 0); a `REDO`
+take is not written unless listed in `--accept-redo`. How to fix:
+
+- *too quiet*: speak closer to the microphone or raise the input level.
+- *clipping*: lower the input level or back off; clipping cannot be repaired.
+- *noisy room* / *clips in the room*: record somewhere quieter, away from fans and hard walls; `--denoise` can help a little.
+- *no speech detected*: the file is silent or only noise; check the microphone and record again.
+- *short* / *long*: the take differs from the expected length; check it was not cut off, or trim and re-record.
 
 ## Deploy
 
@@ -474,10 +731,9 @@ small: MediaPipe and OpenCV are not installed there.
 
 ## Later
 
-- **ElevenLabs voice**: generate voice lines per robot `mode` (nudge, bark,
-  celebrate) and play them through the dog's Bluetooth speaker. A fitting
-  place is a small audio player on whatever device drives the speaker that
-  reacts to `mode` changes from `/api/robot/command` or `/api/events`.
+- **AI voice**: the team chose recorded clips only. A generated or cloned
+  voice (ElevenLabs, see "Optional: generated or cloned voice (not used)")
+  would be a new decision.
 - **Robot code**: on hold until the board is chosen (ESP32 / Uno Q / Pi).
 - **Persistence / TigerData**: see Database.
 - **Continuous Presage vitals**: the harness is a 25-second, one-credit run, as

@@ -19,9 +19,12 @@ import threading
 import time
 from typing import Any, Callable, Iterator
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 from .engine import DEFAULT_DURATION_MINUTES, EngineError, FocusEngine, InvalidInput
+from .speech import CAPTIONS, PLAYABLE, PLAYLIST
+
+CLIPS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "clips")
 
 TICK_SECONDS = 0.25  # how often time-based rules (escalation, timers) run
 SSE_KEEPALIVE_SECONDS = 15.0
@@ -140,6 +143,28 @@ def create_app(engine: FocusEngine | None = None, *, start_ticker: bool = True) 
     def history():
         return jsonify(hub.run(lambda e: list(e.history)))
 
+    @app.get("/api/audio")
+    def audio_index():
+        """Every clip Fido can play, the moments it plays at, and whether its MP3 exists."""
+        return jsonify(
+            clips={
+                name: {
+                    "cues": [cue for cue, clips in PLAYLIST.items() if name in clips],
+                    "caption": CAPTIONS[name],
+                    "available": os.path.isfile(os.path.join(CLIPS_DIR, f"{name}.mp3")),
+                }
+                for name in PLAYABLE
+            }
+        )
+
+    @app.get("/api/audio/<name>.mp3")
+    def audio_clip(name: str):
+        """A pre-generated clip. Public on purpose: phones fetch these directly."""
+        if name not in PLAYABLE:  # whitelist: also rules out path tricks
+            return jsonify(error="Unknown clip"), 404
+        response = send_from_directory(CLIPS_DIR, f"{name}.mp3", mimetype="audio/mpeg", max_age=3600)
+        return response
+
     @app.get("/api/events")
     def events():
         """SSE: one `state` event now, then one per change, plus keepalives."""
@@ -199,12 +224,14 @@ def robot_command(snap: dict[str, Any]) -> dict[str, Any]:
     """Everything the robot needs, nothing it doesn't.
 
     The robot must stop its motors when `motion_enabled` is false, and also when
-    it has not heard from the server for a few seconds.
+    it has not heard from the server for a few seconds. `speech` is the latest
+    audio cue; play each `seq` once (docs/audio.md).
     """
     session = snap["session"]
     return {
         "mode": snap["robot"]["mode"],
         "motion_enabled": snap["settings"]["motion_enabled"],
+        "speech": snap["speech"],
         "task": session["task"] if session else None,
         "remaining_seconds": session["remaining_seconds"] if session else None,
         "reason": session["reason"] if session else None,
