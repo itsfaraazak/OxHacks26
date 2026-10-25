@@ -101,7 +101,16 @@ process.stdin.on('data', chunk => {
       if (!stopping) {
         if (timestamp < minimumCaptureTimestamp) continue;
         stage = 'frame';
-        sdk.sendFrame(frame, width, height, width * 3, PixelFormat.kBGR, timestamp);
+        try {
+          sdk.sendFrame(frame, width, height, width * 3, PixelFormat.kBGR, timestamp);
+        } catch (error) {
+          // The native API can reject a frame after a capture/scheduling gap.
+          // As in the SDK's own custom-input wrapper, discard that frame rather
+          // than destroy a healthy session. Preserve actual capture timestamps:
+          // never fabricate continuous samples or restart a paid scan.
+          if (error?.code !== 11) throw error;
+          emit({ type: 'frame_dropped', code: 11 });
+        }
       }
       stage = 'protocol';
     }

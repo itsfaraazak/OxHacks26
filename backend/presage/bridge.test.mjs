@@ -25,6 +25,26 @@ function frame(timestamp = Date.now() * 1000) {
   return Buffer.concat([header, Buffer.from([1, 2, 3])]);
 }
 
+test('transient timestamp gap drops a frame without killing face metrics', { timeout: 5000 }, async () => {
+  const { processChild, output } = child('0.5', { FIDO_FAKE_FRAME_GAP: '1' });
+  try {
+    const exited = once(processChild, 'close');
+    processChild.stdin.write(frame());
+    await waitStarted(processChild, output);
+    processChild.stdin.write(frame());
+    await new Promise(resolve => setTimeout(resolve, 30));
+    if (processChild.exitCode === null) processChild.stdin.write(frame());
+    const [code] = await exited;
+    assert.equal(code, 0, output.stdout);
+    assert.match(output.stdout, /"type":"metrics"/);
+    assert.doesNotMatch(output.stdout, /"type":"error"/);
+    assert.doesNotMatch(output.stdout + output.stderr, /private frame timing details/);
+    assert.equal((output.stdout.match(/FIDO_TEST started/g) ?? []).length, 1);
+  } finally {
+    processChild.kill();
+  }
+});
+
 async function waitStarted(processChild, output) {
   const deadline = Date.now() + 1000;
   while (!output.stdout.includes('"type":"started"') && processChild.exitCode === null && Date.now() < deadline) {

@@ -21,6 +21,10 @@ export class SmartSpectraSDK {
     if (process.env.FIDO_FAKE_SDK_ERROR) this.callbacks.error(2, 'do not leak this message', false);
   }
   sendFrame(buf, width, height, stride, format, timestamp) {
+    if (process.env.FIDO_FAKE_FRAME_GAP && !this.gapThrown) {
+      this.gapThrown = true;
+      throw Object.assign(new Error('private frame timing details'), { code: 11 });
+    }
     if (buf.length !== width * height * 3 || stride !== width * 3 || format !== 1) {
       throw new Error('Incorrect BGR frame');
     }
