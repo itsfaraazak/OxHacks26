@@ -1,7 +1,8 @@
 """Binary focus detection (YES / NO), ported from the prototype.
 
 Source: archive/oxhack26-prototype/detector/focus_detector.py (vayunk/Oxhack26).
-The thresholds, auto-calibration, and timer rules are unchanged. The prototype's
+Geometry and auto-calibration are preserved; talking now uses a rolling window.
+The prototype's
 single `main()` loop is split into three parts so the backend can reuse them:
 
 - `compute_face_geometry`: MediaPipe landmarks -> `FaceSignals` (verbatim maths).
@@ -13,6 +14,7 @@ single `main()` loop is split into three parts so the backend can reuse them:
 from __future__ import annotations
 
 import os
+from collections import deque
 from dataclasses import dataclass, field
 
 MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "face_landmarker.task")
@@ -20,14 +22,14 @@ MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "face_land
 
 @dataclass(frozen=True)
 class DetectorConfig:
-    """Prototype constants. Defaults match focus_detector.py exactly."""
+    """Prototype thresholds with rolling-window talking detection."""
 
     slack_trigger_seconds: float = 8.0  # continuous slacking before NO
     micro_sleep_seconds: float = 4.0  # continuous eyes closed
-    talking_trigger_seconds: float = 2.0  # continuous talking
+    talking_trigger_seconds: float = 2.0  # mouth-open activity within the window
+    talking_window_seconds: float = 6.0
     eye_closed_threshold: float = 0.55
     jaw_open_threshold: float = 0.065
-    silence_grace_seconds: float = 0.8  # silence that ends a speech session
     calibration_frames: int = 30
     # Deviation from the calibrated baseline that counts as slacking.
     phone_pitch_delta: float = 0.28
@@ -106,7 +108,8 @@ class FocusTracker:
     distracted_seconds: float = 0.0
     eyes_closed_seconds: float = 0.0
     talking_seconds: float = 0.0
-    silence_seconds: float = 0.0
+    _talk_window: deque[tuple[float, bool]] = field(default_factory=deque)
+    _talk_window_seconds: float = 0.0
     _calibration_samples: list[tuple[float, float]] = field(default_factory=list)
 
     def recalibrate(self) -> None:
@@ -114,7 +117,8 @@ class FocusTracker:
         self.calibrated = False
         self.base_pitch, self.base_yaw = 0.40, 0.0
         self.distracted_seconds = self.eyes_closed_seconds = 0.0
-        self.talking_seconds = self.silence_seconds = 0.0
+        self.talking_seconds = self._talk_window_seconds = 0.0
+        self._talk_window.clear()
         self._calibration_samples.clear()
 
     def update(self, signals: FaceSignals | None, dt: float) -> FocusReading:
@@ -128,6 +132,8 @@ class FocusTracker:
             reason = "No Face (Desk Abandoned)"
             self.eyes_closed_seconds = 0.0
             self.talking_seconds = 0.0
+            self._talk_window_seconds = 0.0
+            self._talk_window.clear()
         else:
             pitch_ratio, yaw_ratio = signals.pitch_ratio, signals.yaw_ratio
             if not self.calibrated:
@@ -154,7 +160,7 @@ class FocusTracker:
             reason = f"Micro-Sleep ({self.eyes_closed_seconds:.1f}s eyes closed)"
         elif self.talking_seconds >= c.talking_trigger_seconds:
             focused = False
-            reason = f"Talking / Chatting ({self.talking_seconds:.1f}s)"
+            reason = f"Talking / Chatting ({self.talking_seconds:.1f}s in last {c.talking_window_seconds:g}s)"
         elif self.distracted_seconds >= c.slack_trigger_seconds:
             focused = False
 
@@ -177,21 +183,26 @@ class FocusTracker:
         # 1. Micro-sleep: eyes must stay closed; any open frame resets.
         self.eyes_closed_seconds = self.eyes_closed_seconds + dt if s.eye_blink > c.eye_closed_threshold else 0.0
 
-        # 2. Talking: keeps counting through short pauses between words, and
-        #    resets once silence lasts silence_grace_seconds.
-        talk_cap = c.talking_trigger_seconds + 0.8
-        if s.jaw_open > c.jaw_open_threshold:
-            self.talking_seconds = min(talk_cap, self.talking_seconds + dt)
-            self.silence_seconds = 0.0
-        elif self.talking_seconds > 0.0:
-            if self.silence_seconds < c.silence_grace_seconds:
-                self.talking_seconds = min(talk_cap, self.talking_seconds + dt)
-                self.silence_seconds += dt
-            else:
-                self.talking_seconds = 0.0
-                self.silence_seconds = 0.0
-        else:
-            self.silence_seconds += dt
+        # 2. Talking: accumulate actual mouth-open time across short bursts.
+        # Silence ages old activity out of the window; it never adds speech.
+        duration = max(0.0, dt)
+        talking = s.jaw_open > c.jaw_open_threshold
+        if duration:
+            self._talk_window.append((duration, talking))
+            self._talk_window_seconds += duration
+            if talking:
+                self.talking_seconds += duration
+        excess = self._talk_window_seconds - c.talking_window_seconds
+        while excess > 0 and self._talk_window:
+            oldest_duration, was_talking = self._talk_window.popleft()
+            removed = min(excess, oldest_duration)
+            self._talk_window_seconds -= removed
+            if was_talking:
+                self.talking_seconds -= removed
+            if removed < oldest_duration:
+                self._talk_window.appendleft((oldest_duration - removed, was_talking))
+            excess = self._talk_window_seconds - c.talking_window_seconds
+        self.talking_seconds = max(0.0, self.talking_seconds)
 
         # 3. Spatial slacking: phone / lap, ceiling, or sideways.
         if pitch_diff > c.phone_pitch_delta or (

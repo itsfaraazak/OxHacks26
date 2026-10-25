@@ -1,4 +1,4 @@
-"""The ported tracker must make the same decisions as the prototype loop."""
+"""Prototype gaze rules and rolling-window talking detection."""
 
 from detector.focus import FaceSignals, FocusTracker
 
@@ -76,20 +76,47 @@ def test_micro_sleep_after_4_seconds_of_closed_eyes() -> None:
     assert run(tracker, LOOKING, DT).focused  # opening the eyes resets instantly
 
 
-def test_talking_survives_short_pauses_and_triggers_after_2_seconds() -> None:
+def test_talking_accumulates_across_sentence_pauses() -> None:
     tracker = calibrated()
     talking = FaceSignals(0.40, 0.0, 0.0, 0.0, 0.2)
-    run(tracker, talking, 1.0)
-    run(tracker, LOOKING, 0.5)  # pause between words keeps counting
-    reading = run(tracker, talking, 0.6)
+    for _ in range(4):
+        run(tracker, talking, 0.5)
+        reading = run(tracker, LOOKING, 0.7)
+    reading = run(tracker, talking, 0.1)
     assert not reading.focused and reading.reason.startswith("Talking / Chatting")
 
 
-def test_talking_resets_after_silence_grace() -> None:
+def test_silence_does_not_count_as_talking_and_activity_expires() -> None:
     tracker = calibrated()
     run(tracker, FaceSignals(0.40, 0.0, 0.0, 0.0, 0.2), 1.5)
     run(tracker, LOOKING, 1.0)
-    assert tracker.talking_seconds == 0.0
+    assert abs(tracker.talking_seconds - 1.5) < 0.001
+    reading = run(tracker, LOOKING, 6.0)
+    assert reading.focused and tracker.talking_seconds < 0.001
+
+
+def test_isolated_short_utterances_do_not_trigger() -> None:
+    tracker = calibrated()
+    talking = FaceSignals(0.40, 0.0, 0.0, 0.0, 0.2)
+    for _ in range(5):
+        assert run(tracker, talking, 0.5).focused
+        assert run(tracker, LOOKING, 4.0).focused
+
+
+def test_talking_window_is_frame_rate_independent_and_clears_on_face_loss() -> None:
+    talking = FaceSignals(0.40, 0.0, 0.0, 0.0, 0.2)
+    for dt in (0.02, 0.1, 0.5):
+        tracker = calibrated()
+        for _ in range(round(2.5 / dt)):
+            reading = tracker.update(talking, dt)
+        assert not reading.focused
+        tracker.update(None, dt)
+        assert tracker.talking_seconds == 0.0
+        assert tracker.update(LOOKING, dt).focused
+        tracker.update(talking, 1.0)
+        tracker.recalibrate()
+        assert tracker.talking_seconds == 0.0
+        assert not tracker._talk_window
 
 
 def test_recalibrate_forgets_baseline_and_timers() -> None:

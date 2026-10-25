@@ -5,7 +5,7 @@
 
 export type Phase =
   | "idle" | "awaiting_phone" | "focusing" | "nudge"
-  | "barking" | "escaped" | "paused" | "completed";
+  | "barking" | "escaped" | "paused" | "completed" | "failed";
 
 export type RobotMode =
   | "sleep" | "beckon_dock" | "watch" | "nudge"

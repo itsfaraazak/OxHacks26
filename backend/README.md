@@ -221,7 +221,8 @@ stateDiagram-v2
     barking --> escaped: still distracted (escape_after_seconds)
     nudge --> focusing: refocused
     barking --> focusing: refocused
-    escaped --> focusing: caught (good boy card) or 10 min timeout
+    escaped --> failed: stop button, caught, or 10 min timeout
+    failed --> awaiting_phone: explicit new Start (fresh timer)
     focusing --> paused: pause
     paused --> focusing: resume
     focusing --> completed: time is up
@@ -230,15 +231,23 @@ stateDiagram-v2
 
 - **Distracted** means any live, calibrated camera says NO (the prototype's
   rules: looking at the phone or lap, looking up or away, eyes closed for 4 s,
-  talking for 2 s, no face), or the phone left the dock.
+  2 s of mouth-open activity within a rolling 6 s window, no face), or the phone left the dock.
 - **Escaped** keeps running even if the user refocuses. It ends only when the
-  user catches the dog and taps the NFC "good boy" card (or marks it caught
-  in the app), or after `escape_timeout_seconds` (10 minutes). After that,
-  `recover_grace_seconds` gives the user time to sit back down before
-  watching resumes.
+  user catches the dog and presses its stop button (the app's **Stop Fido**
+  button sends the same `caught` event), or after `escape_timeout_seconds`
+  (10 minutes). The stopped session is `failed`, archived as incomplete, and
+  the robot rests. Only an explicit new Start begins watching again, with a
+  fresh session ID, full timer, and reset distraction/escape counters.
 - Pausing is allowed until the dog escapes; it stops the clock and escalation.
-- The session clock starts when the phone is docked and runs in every watching
-  phase, including escaped.
+- The session clock starts when the phone is docked and runs in focusing,
+  nudge, and barking. Escape freezes it: running away cannot earn a successful
+  timer completion.
+- Talking uses camera jaw movement, not microphone audio. Actual mouth-open
+  time accumulates across pauses in a rolling 6-second window; silence never
+  counts as speech. Activity expires from the window and is cleared on face
+  loss or recalibration. This is a tunable heuristic, not speech recognition;
+  a held-open mouth or yawn can still trigger it. Only the resulting timer and
+  decision leave the detector, not frames or a speech history.
 
 ## API
 
@@ -289,7 +298,7 @@ State snapshot (abridged):
 ```
 
 `phase` is one of `idle`, `awaiting_phone`, `focusing`, `nudge`, `barking`,
-`escaped`, `paused`, `completed`. `session` is `null` when idle.
+`escaped`, `paused`, `completed`, `failed`. `session` is `null` when idle.
 `detector.focused` is `null` until a calibrated camera is reporting.
 
 ### Settings
@@ -299,14 +308,15 @@ State snapshot (abridged):
 | `bark_after_seconds` | 6 | Distracted time in nudge before barking |
 | `escape_after_seconds` | 8 | Distracted time in barking before escaping |
 | `escape_timeout_seconds` | 600 | An uncaught escape stops by itself |
-| `recover_grace_seconds` | 15 | No escalation after resume or catch |
+| `recover_grace_seconds` | 15 | No escalation after resume |
 | `source_stale_seconds` | 3 | A camera silent this long is ignored |
 | `robot_offline_seconds` | 5 | Robot shown offline after this silence |
 | `require_dock` | true | Sessions wait for the phone; removing it is a distraction |
 | `motion_enabled` | true | Robot may drive. Turn off to keep Fido still, e.g. as an emergency stop from the app |
 
 The nudge itself starts once a camera says NO, which already takes the
-prototype's 8 s of continuous slacking (or 4 s eyes closed, or 2 s talking).
+prototype's 8 s of continuous slacking (or 4 s eyes closed, or 2 s mouth-open
+activity within the last 6 s). Talking thresholds live in `DetectorConfig`.
 
 ### Devices
 
@@ -335,7 +345,8 @@ requests fits:
   `info` is shown in the app; known keys: `battery` (percent, 0-100) and
   `board` (e.g. `esp32`). Send
   `docked` / `undocked` when the NFC tag on the phone appears or disappears,
-  and `caught` when the good-boy card is tapped.
+  and `caught` when the stop button is pressed after catching Fido (an existing
+  good-boy card can send the same event). No firmware is implemented here.
 - **Stop the motors** whenever `motion_enabled` is false, and whenever no reply
   has arrived for 3 seconds. The `run` routine (drive off the table, land, run)
   should have its own maximum duration on the robot.

@@ -47,13 +47,22 @@ test("phone focus journey against the backend", async ({ page, request }) => {
   await expect(heading(page, "Woof! Back to your one thing.")).toBeVisible();
   await reading(request, false, "Looking Away Sideways");
   await expect(heading(page, "Fido ran off with your phone.")).toBeVisible();
-  await expect(page.getByText("tap the good-boy card")).toBeVisible();
+  await expect(page.getByText("Session failed. Catch Fido")).toBeVisible();
   await expect(page.getByRole("button", { name: "Take a breath" })).toHaveCount(0);
 
   // Refocusing does not end an escape; catching Fido does.
   await reading(request, true, "Focused");
-  await page.getByRole("button", { name: "I caught Fido" }).click();
+  await page.getByRole("button", { name: "Stop Fido" }).click();
+  await expect(heading(page, "Fido stopped. Take a moment.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Keep going" })).toHaveCount(0);
+  const failed = (await (await request.get(`${API}/api/state`)).json()).session;
+  await page.getByLabel("I want to focus on").fill("A fresh attempt");
+  await page.getByRole("button", { name: "Start again" }).click();
   await expect(heading(page, "You do your thing.")).toBeVisible();
+  const restarted = (await (await request.get(`${API}/api/state`)).json()).session;
+  expect(restarted.id).not.toBe(failed.id);
+  expect(restarted.remaining_seconds).toBeGreaterThan(1497);
+  expect(restarted.escapes).toBe(0);
 
   await page.getByRole("button", { name: "Take a breath" }).click();
   await expect(page.getByRole("button", { name: "Keep going" })).toBeVisible();

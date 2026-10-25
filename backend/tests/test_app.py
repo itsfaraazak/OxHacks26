@@ -59,7 +59,8 @@ def test_full_journey_over_http(client, clock: Clock) -> None:
 
     client.post("/api/robot/events", json={"event": "caught"})
     state = client.get("/api/state").json
-    assert state["phase"] == "focusing"
+    assert state["phase"] == "failed"
+    assert client.get("/api/robot/command").json["mode"] == "rest"
     assert state["vitals"] == {"pulse": 72}
     assert state["robot"]["info"] == {"battery": 80}
     assert state["detector"]["sources"]["laptop"]["fps"] == 29.5
