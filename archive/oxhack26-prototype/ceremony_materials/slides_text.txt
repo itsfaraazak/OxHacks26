@@ -1,0 +1,613 @@
+=== PAGE 1 ===
+Welcome to
+
+=== PAGE 2 ===
+OxHack is Back!
+350 hackers. 2 days. 1 event.
+● OxHack 2014, …
+● OxfordHack 2018, 2019, 2020, 2022
+● Various other large scale events
+
+=== PAGE 3 ===
+Team
+We’re wearing OxHack fleeces!
+ ● Raphael
+● Kaal
+● Rayn
+● Declan
+● Anshul
+● Amos
+● And others…
+
+=== PAGE 4 ===
+=== PAGE 5 ===
+Hudson 
+River 
+Trading
+Welcome!
+#
+
+=== PAGE 6 ===
+Meet the Team!
+Joshan Parmar
+Algo Developer
+Ronette Yeboah
+Recruiting Coordinator
+Charlotte 
+Whittington-Firth
+EMEA Campus Lead
+=== PAGE 7 ===
+Agenda
+01 02
+Why HRT? Join our 
+team
+03
+HRT <> Oxhacks 
+Challenge!
+=== PAGE 8 ===
+Engineering Culture
+almost all HRTers know how to code; our culture 
+is technical, not financial
+Highly Collaborative
+open code base + open research environment
+Technical Excellence
+work with the best engineers and scientists
+2. Why HRT? AI At Massive Scale
+Data and compute at will
+=== PAGE 9 ===
+Engineering Culture
+We’re a tech company
+in finance, not a 
+finance company in 
+tech.
+
+=== PAGE 10 ===
+Highly Collaborative
+open code base
++ open research
+= collaborative environment
+=== PAGE 11 ===
+Technical Excellence
+Make it Better
+Small teams working 
+on homegrown, 
+on-prem 
+infrastructure.
+
+=== PAGE 12 ===
+AI At Massive Scale
+Experiment Without
+Limits
+Industry-leading GPU 
+and data infrastructure 
+to unleash opportunities
+
+=== PAGE 13 ===
+3. Join our team
+=== PAGE 14 ===
+Roles at HRT
+Algorithm Developers 
+Build and maintain the models 
+that drive our trading.
+Software Engineers
+Create and maintain the 
+infrastructure that is integral to 
+our trading.
+Data Scientist
+Extract, validate, and normalize 
+vast datasets to provide
+high-quality data for research and 
+trading.
+=== PAGE 15 ===
+Algorithm Developers @ HRT
+Algorithm Developers research, develop, and test 
+novel order execution and model training methods 
+to increase trading efficiency and maintain 
+ongoing profitability.
+Areas of expertise:
+Programming in Python and/or C++
+Statistical analysis, numerical 
+programming, or machine learning 
+in Python, Pandas/Numpy.
+A typical day involves applying rigorous statistical 
+analysis to vast quantities of market and financial 
+data to produce predictive trading models.
+11
+=== PAGE 16 ===
+Software Engineers @ HRT
+Software Engineers are C++ and Python 
+programmers whose work spans our 
+incredible live trading system and a 
+powerful research environment.
+Areas of expertise:
+Python 
+C++
+OS Internals 
+CPU Architecture
+Networking Hardware & ProtocolsA typical day involves building tooling and 
+infrastructure for our high-performance 
+systems that is optimized for latency (live 
+trading) and throughput (research).
+12
+=== PAGE 17 ===
+@Data Scientists        HRT
+Data Scientists focus on extracting useful 
+information from the vast volume of data available 
+in the world. They apply rigorous quality checks, 
+and investigate methodologies for providing the 
+highest quality data for research and trading.
+Areas of expertise:
+Python
+Statistical Analysis & Machine Learning 
+Data Pipelines & Infrastructure Predictive 
+Modeling & Research
+A typical day involves analyzing multiple complex 
+datasets, and developing scalable data pipelines 
+to drive quantitative research across the firm.
+13
+=== PAGE 18 ===
+Culture of Problem Solving
+Systems Architecture & Design
+Cluster Management Large 
+Computing Complex 
+Systems Design
+Performance Optimization
+Software & Hardware Latency 
+Optimization Compression
+Efficient Caching
+Data & Computational Theory
+Algorithms Game 
+Theory
+Machine Learning
+Information Technology
+Databases
+Wireless Communication 
+Compression
+Big Data Analysis
+=== PAGE 19 ===
+2027 Student Opportunities @ HRT
+Internships – Summer 2027
+FOR 2O28 GRADS
+Full-time Roles
+FOR 2O26/2027 GRADS
+Algorithm Developer
+➔ Degree: Maths, CS, Physics, Stats, or related
+Software Engineer
+➔ Degree: CS, Engineering, or related
+Algorithm Development (Quant Research) Intern
+➔ Degree: Maths, CS, Physics, Stats, or 
+related (open to undergrads & PhD students!)
+➔ We are open to longer internships
+Software Engineering Intern
+➔ Degree: CS, Engineering, or related
+➔ We are also open to extended placement students, as 
+well!
+Data Scientist Intern
+➔ Degree: STEM field: a computer science background is 
+not required
+For all roles: You do not need finance knowledge or experience.
+15
+
+=== PAGE 20 ===
+Interview Process
+Step 01 Step 02 Step 03 Step 04.
+Take Home Test
+Full-time: ~2 hours timed
+Internship: ~2 hours 
+timed
+Language: C++, Python
+First Phone
+30 - 45 minute technical interview
+SWE: Data structures, systems, 
+algorithms, C and/or C++, and how 
+computers work
+Algo: Probability & Coding
+Second Phone
+SWE: 1 hour technical interview via 
+CoderPad. C/C++, primarily 
+coding interview
+Algo: 1 hour technical interview 
+including, but not limited to Data 
+analysis, programming, problem 
+solving,
+On-site
+SWE: Assesses your programming 
+skills, alongside your systems design 
+knowledge
+Algo: Including, but not limited 
+Data analysis, programming & 
+project work (C++ or Python)
+=== PAGE 21 ===
+HRT <> OxHacks Challenge 2026
+Best use of Data for
+Predictions & Decision
+Making
+
+=== PAGE 22 ===
+=== PAGE 23 ===
+=== PAGE 24 ===
+=== PAGE 25 ===
+=== PAGE 26 ===
+=== PAGE 27 ===
+Built with Delta
+Show off how you worked together in Delta. Extra points 
+for projects that solve real problems.
+Work sync (or async) alongside teammates and agents. Use Delta from 
+brainstorming/ideation, building, all the way through testing. Share your 
+Delta threads to show examples of how you collaborated.
+
+=== PAGE 28 ===
+What We’re Looking For
+● Projects that feel fast -  snappy UX, zero unnecessary friction.
+● Projects that solve a real problem. Not a demo. Something you’d 
+actually open tomorrow.
+● Projects that are thoughtful. Clean code, smart architecture, good 
+decisions.
+Prompts to Get You Started
+• What slows you down when you’re coding? What if that friction 
+disappeared?
+• What’s broken about collaborating on code with teammates or AI?
+• What would you build if latency wasn’t a constraint?
+• What context do you lose every time you switch tasks — and how do 
+you get it back?
+
+=== PAGE 29 ===
+How You Win
+Speed & Performance (30%) — Does it feel fast? Is the UX snappy and 
+responsive?
+Technical Implementation (25%) — Clean code, smart architecture, good 
+use of collaboration features.
+Innovation (25%) — Fresh idea. Real problem. New angle.
+Polish & Usability (20%) — Would you actually use this? Does it delight?
+
+=== PAGE 30 ===
+- Download Delta https://delta.dev/download
+- Tokens: Use OpenRouter tokens in Delta. Docs here: 
+https://delta.dev/docs/agents/models-and-providers#add-an-api-key
+- Quickstart: https://delta.dev/docs/getting-started/quick-start
+- Useful videos 
+- Overview: https://www.youtube.com/watch?v=HWB48DFk4Sg
+- Subthreads: https://www.youtube.com/watch?v=yek9A_f39qo
+- Subthreads again: 
+https://www.youtube.com/watch?v=i1IProLb_UM
+- Setting up Ollama: 
+https://www.youtube.com/watch?v=Y4mpyFDb4xc
+- Not a demo but for CRDT nerds: 
+https://www.youtube.com/watch?v=yif2rday2bw
+
+=== PAGE 31 ===
+=== PAGE 32 ===
+=== PAGE 33 ===
+=== PAGE 34 ===
+=== PAGE 35 ===
+Home of the next billion software creators. 
+=== PAGE 36 ===
+Hey! I’m Oscar.
+I’m your Coach from Major League Hacking (MLH) this 
+weekend. Fun facts about me:
+● Studying MEng Computer Science
+● I’ve been to 35 hackathons across 7 countries!
+● My favorite project I’ve made was a painting with 
+screens for eyes that follow people around a room!
+@MLHacks
+@MajorLeagueHacking
+@MajorLeagueHacking
+
+=== PAGE 37 ===
+Everything you need this weekend:
+ mlh.link/oxhack 
+=== PAGE 38 ===
+You can’t learn the 
+skills to become a 
+Software Creator  in 
+the classroom. 
+The MLH Community is the best thing that 
+happened to me and my career
+Yashika Sharma 
+@yashika51
+MLH helped me become a better engineer than 
+any internship or school ever could.
+Brandon Barker 
+@projectbarks
+MLH taught me skills that set me apart from
+my peers & led to an amazing job at Microsoft!
+Emily Huang 
+@huang-emily
+The skills & network I gained through MLH helped 
+me land a great job at IBM.
+Nigel Brown 
+@pnbrown
+This summer was one of the most life changing 
+experiences for me thanks to MLH.
+Jessie Nguyen 
+@jessie_anh_ng
+
+=== PAGE 39 ===
+The world’s largest  
+developer community. 
+Nearly 15% of all Software Engineers got 
+their start here in the MLH Community.
+Through hackathons, internships, content, 
+& more, MLH helps you learn the skills & 
+technologies you need for your career.
+￼
+
+=== PAGE 40 ===
+OCTOBER 2026 • IN PERSON + ONLINE 
+Hacktoberfest 2026
+AI belongs to everyone
+Explore Hacktoberfest →
+hacktoberfest.com
+Powered by MLH + DEV   •   Presented by DigitalOcean 
+
+=== PAGE 41 ===
+What is MLH doing 
+here this weekend ?
+Resources for your hack:
+hack.mlh.com
+=== PAGE 42 ===
+MLH 
+Hardware Lab 
+Check out some hardware for your  
+project. Arduino, Raspberry Pi,  
+and much more!  
+ 
+👉
+ Get Started: mlh.link/hardware
+=== PAGE 43 ===
+Intro to  
+Google AI Studio 
+1. Grab an API Key in a flash 
+at mlh.link/aistudio
+2. Join the workshop 
+at 17:30 in Classroom 1 
+mlh.link/oxhack-aistudio
+=== PAGE 44 ===
+mlh.link/oxhack-github
+Hacking with 
+GitHub Copilot 
+1. Fast-track access to the 
+GitHub Student Developer 
+Pack at mlh.link/pack
+2. Exclusive MLH + GitHub 
+Copilot sticker 
+at 19:00 in Classroom 1 
+=== PAGE 45 ===
+2027 Season 
+Mascot Tees! 
+Grab a limited edition t-shirt  
+while supplies last 🐨
+ 👕
+ 
++
+=== PAGE 46 ===
+Resources for your hack:
+hack.mlh.com
+We have all the 
+resources you need  & 
+some amazing prizes! 
+=== PAGE 47 ===
+BEST USE OF 
+GEMINI API 
+Unlock superpowers with Gemini’s  
+multimodality and flash models 
+🏆
+ You’ll Win:  MLH + DEV Swag Bags 
+👉
+ Get Started:  mlh.link/gemini
++
+=== PAGE 48 ===
+BEST USE OF 
+ELEVENLABS
+The world’s best AI platform for  
+producing & consuming audio. 
++
+🏆
+ You’ll Win:  Beats Solo Earbuds 
+👉
+ Get Started:  mlh.link/elevenlabs
++
++
+=== PAGE 49 ===
++
+BEST USE OF 
+TIGER DATA 
+🏆
+ You’ll Win:  Stream Deck Mini 
+👉
+ Get Started: mlh.link/tigerdata
+Supercharge your hackathon  
+project with the most scalable  
+Postgres.
++
+=== PAGE 50 ===
++
+BEST USE OF 
+SNOWFLAKE API 
+Turn big data into big ideas  
+with one powerful API.  
+🏆
+ You’ll Win:  Arduino Kits 
+👉
+ Get Started:  mlh.link/snowflake
++
+
+=== PAGE 51 ===
++
+BEST USE OF 
+SOLANA
+Build high-speed apps on the  
+world’s fastest blockchain. 
+🏆
+ You’ll Win:  Assorted Prizes 
+👉
+ Get Started: mlh.link/solana
++
+
+=== PAGE 52 ===
++
+BEST USE OF 
+PRESAGE
+Turn any camera into a real-time  
+biometrics sensing device. 
+🏆
+ You’ll Win: Fitbit Inspires 
+👉
+ Get Started: mlh.link/presage
++
++
++
+=== PAGE 53 ===
+BEST USE OF 
+VULTR
+🏆
+ You’ll Win:  Portable Screens 
+👉
+ Get Started: mlh.link/vultr
++
++
+The ultimate developer toolkit  
+for building on the cloud. 
+=== PAGE 54 ===
+Writing
+Challenge
+Your hackathon may end after the weekend, but 
+your project story is just getting started. 
+Publish what you built on DEV and help other 
+developers learn from your process. 
+🏆
+ You’ll Win: $100
+👉
+ Get Started:  dev.to/mlh-hackathon
+ +
+
+=== PAGE 55 ===
+Need to see those again?
+ mlh.link/oxhack 
+=== PAGE 56 ===
+I Demoed 
+Stickers
+Earn your sticker by showing off  
+what you build on Sunday 
+
+=== PAGE 57 ===
+Let’s do a 
+quick demo 
+=== PAGE 58 ===
+=== PAGE 59 ===
+mlh.link/
+oscar-demo
+=== PAGE 60 ===
+=== PAGE 61 ===
+On a serious note…
+=== PAGE 62 ===
+mlh.com/code-of-conduct
+MLH Hackathons are safe & welcoming 
+spaces for everyone:
+Email: incidents@mlh.io Phone: +44 (0) 800 808 5675
+=== PAGE 63 ===
+Home of the next billion software creators. 
+=== PAGE 64 ===
+=== PAGE 65 ===
+=== PAGE 66 ===
+Who are Hackathons UK?
+=== PAGE 67 ===
+❯ Hackathon 
+❯ community 
+❯ in the UK 
+
+=== PAGE 68 ===
+a hackathon 
+❯ Organise
+
+=== PAGE 69 ===
+❯ a hackathon 
+❯ Attend
+hackuk.org/events
+
+=== PAGE 70 ===
+a hackathon 
+❯ Mentor at 
+
+=== PAGE 71 ===
+a hackathon 
+❯ Sponsor
+
+=== PAGE 72 ===
+❯ Join our 
+community
+
+=== PAGE 73 ===
+What are we getting 
+up to?
+=== PAGE 74 ===
+Hackiest Hack 
+hacking skills !
+❯ Show off your 
+=== PAGE 75 ===
+Saturday
+20:30 BST 
+Cup Stacking 
+  stacking skills 
+❯ Show off your 
+=== PAGE 76 ===
+❯ Visit our table 
+❯ for lots of 
+❯ swag!
+Hackathons UK
+=== PAGE 77 ===
+ hackathons.org.uk 
+=== PAGE 78 ===
+=== PAGE 79 ===
+=== PAGE 80 ===
+=== PAGE 81 ===
+=== PAGE 82 ===
+What about Daylight 
+Savings?
+● 25 hours of hacking!
+
+=== PAGE 83 ===
+OxHack 2026
+Build something, learn something, 
+meet people and have fun!
+
+=== PAGE 84 ===
+OxHack 2026
+Theme
+
+=== PAGE 85 ===
+How to hack?
+● Get creative, learn something new
+● “Best Handmade Project” (With Thanks to 
+Citadel)
+
+=== PAGE 86 ===
+Venue
+
+=== PAGE 87 ===
+Fire Safety Information
+● No planned drills throughout the weekend
+● In the case of a fire
+○ Follow the organisers (OxHack Fleeces)
+○ Assemble by Core 1 & Core 2
+○ Follow Fire Exit arrows
+
+=== PAGE 88 ===
+Code of Conduct
+● MLH Code of Conduct
+○ https://github.com/MLH/mlh-policies/blob/main/code-of-conduct.md
+● Hackathons UK
+○ https://www.hackathons.org.uk/code-of-conduct/
+
+=== PAGE 89 ===
+Other notices
+● Don’t use the AV systems
+● Accessibility needs
+● First Aid marshalls at reception in case of 
+emergency/incident
+● Stick to venue areas
+● Discord announcements channel
+
+=== PAGE 90 ===
+Happy Hacking
+

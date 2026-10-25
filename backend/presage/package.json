@@ -1,0 +1,14 @@
+{
+  "name": "presage-test-harness",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Safe, bounded test runner for Presage SmartSpectra SDK",
+  "main": "test_presage.mjs",
+  "scripts": {
+    "test-safe": "node test_presage.mjs"
+  },
+  "dependencies": {
+    "@smartspectra/node-sdk": "latest",
+    "dotenv": "^16.4.7"
+  }
+}

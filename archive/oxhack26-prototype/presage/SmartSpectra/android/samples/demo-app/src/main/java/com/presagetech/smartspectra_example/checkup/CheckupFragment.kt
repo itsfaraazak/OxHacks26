@@ -1,0 +1,373 @@
+// CheckupFragment.kt
+// Copyright (C) 2026 Presage Technologies, Inc.
+//
+// SPDX-License-Identifier: LicenseRef-Proprietary
+
+package com.presagetech.smartspectra_example.checkup
+
+import android.graphics.Color
+import android.graphics.Typeface
+import android.os.Bundle
+import android.view.Gravity
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.core.view.isVisible
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.github.mikephil.charting.charts.LineChart
+import com.github.mikephil.charting.charts.ScatterChart
+import com.github.mikephil.charting.components.XAxis
+import com.github.mikephil.charting.components.YAxis
+import com.github.mikephil.charting.data.Entry
+import com.github.mikephil.charting.data.LineData
+import com.github.mikephil.charting.data.LineDataSet
+import com.github.mikephil.charting.data.ScatterData
+import com.github.mikephil.charting.data.ScatterDataSet
+import com.github.mikephil.charting.formatter.ValueFormatter
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.switchmaterial.SwitchMaterial
+import com.presagetech.smartspectra.proto.MetricsProto
+import com.presagetech.smartspectra.SmartSpectraConfig
+import com.presagetech.smartspectra_example.ui.CameraPickerDialogFragment
+import com.presagetech.smartspectra.SmartSpectraSdk
+import com.presagetech.smartspectra_example.SmartSpectraButton
+import com.presagetech.smartspectra_example.util.toChartEntries
+import com.presagetech.smartspectra_example.MainActivity
+import com.presagetech.smartspectra_example.R
+import com.presagetech.smartspectra_example.userFacingMessage
+import kotlinx.coroutines.launch
+import java.util.Locale
+
+/**
+ * Implementation of the checkup demo based on [SmartSpectraButton] with [SmartSpectraSdk].
+ */
+class CheckupFragment : Fragment() {
+    private val viewModel: CheckupViewModel
+        get() = (requireActivity() as MainActivity).checkupViewModel
+
+    private lateinit var smartSpectraButton: SmartSpectraButton
+    private lateinit var errorTextView: TextView
+    private lateinit var buttonContainer: LinearLayout
+    private lateinit var chartContainer: LinearLayout
+    private lateinit var faceMeshContainer: ScatterChart
+
+    private val isCustomizationEnabled = true
+    private val isFaceMeshEnabled = true
+
+    // Cardio measurements toggle
+    private var cardioMeasurementsEnabled: Boolean = false
+
+    // Face metrics toggle
+    private var faceMetricsEnabled: Boolean = false
+
+    // EDA measurements toggle
+    private var edaMeasurementsEnabled: Boolean = false
+
+    private val smartSpectraSdk = SmartSpectraSdk.shared
+
+    override fun onCreateView(
+        inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
+    ): View = inflater.inflate(R.layout.fragment_checkup, container, false)
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        // Render the finished traces accumulated by the ViewModel. Capture runs
+        // in a separate Activity, so accumulation lives in the ViewModel (which
+        // survives this fragment being stopped); here we just render its snapshot
+        // when the screen is visible.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.traces.collect { traces -> renderCharts(traces) }
+            }
+        }
+
+        smartSpectraButton = view.findViewById(R.id.smart_spectra_button)
+        errorTextView = view.findViewById(R.id.error_text)
+        buttonContainer = view.findViewById(R.id.button_container)
+        chartContainer = view.findViewById(R.id.chart_container)
+        faceMeshContainer = view.findViewById(R.id.mesh_container)
+
+        // Optional: Observe metrics for custom display (e.g. charts, face landmarks)
+        smartSpectraSdk.metrics.observe(viewLifecycleOwner) { metrics ->
+            metrics?.let { handleMetrics(it) }
+        }
+        smartSpectraSdk.error.observe(viewLifecycleOwner) { error ->
+            errorTextView.isVisible = error != null
+            errorTextView.text = error?.userFacingMessage(requireContext()).orEmpty()
+        }
+
+        if (isCustomizationEnabled) {
+            addControlViews()
+        }
+    }
+
+    private fun addControlViews() {
+        cardioMeasurementsEnabled = viewModel.cardioMeasurementsEnabled.value
+        faceMetricsEnabled = viewModel.faceMetricsEnabled.value
+        edaMeasurementsEnabled = viewModel.edaMeasurementsEnabled.value
+        refreshRequestedMetrics()
+        addCameraPicker()
+        addCardioToggle()
+        addFaceMetricsToggle()
+        addEdaToggle()
+    }
+
+    private fun refreshRequestedMetrics() {
+        smartSpectraSdk.config.requestedMetrics = buildList {
+            addAll(SmartSpectraConfig.breathingMetrics)
+            if (cardioMeasurementsEnabled) addAll(SmartSpectraConfig.cardioMetrics)
+            if (faceMetricsEnabled) addAll(SmartSpectraConfig.faceMetrics)
+            if (edaMeasurementsEnabled) addAll(SmartSpectraConfig.edaMetrics)
+        }
+    }
+
+    private fun addCardioToggle() {
+        val cardioContainer = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(16, 8, 16, 8)
+            }
+        }
+
+        val cardioSwitch = SwitchMaterial(requireContext()).apply {
+            text = getString(R.string.demo_cardio_measurements)
+            isChecked = cardioMeasurementsEnabled
+        }
+
+        val cardioSubtitle = TextView(requireContext()).apply {
+            text = getString(R.string.demo_cardio_subtitle)
+            textSize = 12f
+            setTextColor(resources.getColor(android.R.color.darker_gray, null))
+            setPadding(0, 0, 0, 8)
+        }
+
+        cardioSwitch.setOnCheckedChangeListener { _, isChecked ->
+            cardioMeasurementsEnabled = isChecked
+            viewModel.setCardioMeasurementsEnabled(isChecked)
+            refreshRequestedMetrics()
+        }
+
+        cardioContainer.addView(cardioSwitch)
+        cardioContainer.addView(cardioSubtitle)
+        buttonContainer.addView(cardioContainer)
+    }
+
+    private fun addFaceMetricsToggle() {
+        val faceContainer = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(16, 8, 16, 8)
+            }
+        }
+
+        val faceSwitch = SwitchMaterial(requireContext()).apply {
+            text = getString(R.string.demo_face_metrics)
+            isChecked = faceMetricsEnabled
+        }
+
+        val faceSubtitle = TextView(requireContext()).apply {
+            text = getString(R.string.demo_face_metrics_subtitle)
+            textSize = 12f
+            setTextColor(resources.getColor(android.R.color.darker_gray, null))
+            setPadding(0, 0, 0, 8)
+        }
+
+        faceSwitch.setOnCheckedChangeListener { _, isChecked ->
+            faceMetricsEnabled = isChecked
+            viewModel.setFaceMetricsEnabled(isChecked)
+            refreshRequestedMetrics()
+        }
+
+        faceContainer.addView(faceSwitch)
+        faceContainer.addView(faceSubtitle)
+        buttonContainer.addView(faceContainer)
+    }
+
+    private fun addEdaToggle() {
+        val edaContainer = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(16, 8, 16, 8)
+            }
+        }
+
+        val edaSwitch = SwitchMaterial(requireContext()).apply {
+            text = getString(R.string.demo_eda_measurements)
+            isChecked = edaMeasurementsEnabled
+        }
+
+        val edaSubtitle = TextView(requireContext()).apply {
+            text = getString(R.string.demo_eda_subtitle)
+            textSize = 12f
+            setTextColor(resources.getColor(android.R.color.darker_gray, null))
+            setPadding(0, 0, 0, 8)
+        }
+
+        edaSwitch.setOnCheckedChangeListener { _, isChecked ->
+            edaMeasurementsEnabled = isChecked
+            viewModel.setEdaMeasurementsEnabled(isChecked)
+            refreshRequestedMetrics()
+        }
+
+        edaContainer.addView(edaSwitch)
+        edaContainer.addView(edaSubtitle)
+        buttonContainer.addView(edaContainer)
+    }
+
+    private fun addCameraPicker() {
+        val cameraButton = MaterialButton(
+            requireContext(), null, com.google.android.material.R.attr.materialIconButtonStyle
+        ).apply {
+            setText(R.string.demo_select_camera)
+            setIconResource(R.drawable.ic_flip_camera)
+            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
+            iconPadding = resources.getDimensionPixelSize(R.dimen.demo_button_icon_padding)
+            isEnabled = CameraPickerDialogFragment.canOpen(smartSpectraSdk.processingStatus.value)
+            setOnClickListener { CameraPickerDialogFragment.show(childFragmentManager) }
+        }
+        smartSpectraSdk.processingStatus.observe(viewLifecycleOwner) { status ->
+            cameraButton.isEnabled = CameraPickerDialogFragment.canOpen(status)
+        }
+        buttonContainer.addView(cameraButton)
+    }
+
+    private fun handleMetrics(metrics: MetricsProto.Metrics) {
+        // Handle face mesh. Trace accumulation/rendering is driven separately by
+        // the ViewModel's [CheckupTraces] snapshot (see onViewCreated).
+        if (isFaceMeshEnabled && metrics.hasFace() && metrics.face.landmarksCount > 0) {
+            val latestLandmarks = metrics.face.landmarksList.lastOrNull()?.valueList
+            if (latestLandmarks != null) {
+                val meshPoints = latestLandmarks.map { landmark ->
+                    landmark.x.toInt() to landmark.y.toInt()
+                }
+                handleMeshPoints(meshPoints)
+            }
+        } else {
+            faceMeshContainer.isVisible = false
+        }
+    }
+
+    private fun renderCharts(traces: CheckupTraces) {
+        chartContainer.removeAllViews()
+
+        if (traces.breathingTrace.isNotEmpty()) {
+            addChart(traces.breathingTrace.toChartEntries(), getString(R.string.demo_breathing_pleth), false)
+        }
+        if (traces.breathingRate.isNotEmpty()) {
+            addChart(traces.breathingRate.toChartEntries(), getString(R.string.demo_breathing_rate), true)
+        }
+        if (cardioMeasurementsEnabled) {
+            if (traces.pulseRate.isNotEmpty()) {
+                addChart(traces.pulseRate.toChartEntries(), getString(R.string.demo_pulse_rate), true)
+            }
+            if (traces.arterialPressureTrace.isNotEmpty()) {
+                addChart(traces.arterialPressureTrace.toChartEntries(), getString(R.string.demo_edge_arterial_pressure), false)
+            }
+        }
+        if (edaMeasurementsEnabled && traces.edaTrace.isNotEmpty()) {
+            addChart(traces.edaTrace.toChartEntries(), getString(R.string.demo_eda), false)
+        }
+    }
+
+    private fun addChart(entries: List<Entry>, title: String, showYTicks: Boolean) {
+        if (entries.isEmpty()) return
+
+        val chart = LineChart(requireContext())
+        val density = resources.displayMetrics.density
+        val heightInPx = (200 * density).toInt()
+        chart.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, heightInPx
+        )
+
+        val titleView = TextView(requireContext()).apply {
+            text = title
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+        }
+
+        chartContainer.addView(titleView)
+        chartContainer.addView(chart)
+
+        val dataSet = LineDataSet(entries, "Data").apply {
+            setDrawValues(false)
+            setDrawCircles(false)
+            color = Color.RED
+        }
+
+        chart.data = LineData(dataSet)
+        chart.xAxis.position = XAxis.XAxisPosition.BOTTOM
+        chart.xAxis.setDrawGridLines(false)
+        chart.xAxis.setDrawAxisLine(true)
+        chart.xAxis.granularity = 1.0f
+        chart.xAxis.valueFormatter = object : ValueFormatter() {
+            override fun getFormattedValue(value: Float): String {
+                val totalSeconds = value.toInt()
+                val minutes = totalSeconds / 60
+                val seconds = totalSeconds % 60
+                return String.format(Locale.ROOT, "%d:%02d", minutes, seconds)
+            }
+        }
+        chart.axisLeft.apply {
+            setPosition(YAxis.YAxisLabelPosition.OUTSIDE_CHART)
+            setDrawZeroLine(false)
+            setDrawGridLines(false)
+            setDrawAxisLine(true)
+            setDrawLabels(showYTicks)
+        }
+        chart.axisRight.isEnabled = false
+        chart.legend.isEnabled = false
+        chart.description.isEnabled = false
+        chart.onTouchListener = null
+        chart.invalidate()
+    }
+
+    private fun handleMeshPoints(meshPoints: List<Pair<Int, Int>>) {
+        if (meshPoints.isEmpty()) {
+            faceMeshContainer.isVisible = false
+            return
+        }
+
+        faceMeshContainer.isVisible = true
+
+        // Sorting avoids the negative array size exception in MPAndroidChart scatter plots.
+        val scaledPoints =
+            meshPoints.map { Entry(1f - it.first / 720f, 1f - it.second / 720f) }.sortedBy { it.x }
+
+        val dataSet = ScatterDataSet(scaledPoints, getString(R.string.demo_mesh_points)).apply {
+            setDrawValues(false)
+            scatterShapeSize = 15f
+            setScatterShape(ScatterChart.ScatterShape.CIRCLE)
+        }
+
+        val scatterData = ScatterData(dataSet)
+
+        faceMeshContainer.apply {
+            data = scatterData
+            axisLeft.isEnabled = false
+            axisRight.isEnabled = false
+            xAxis.isEnabled = false
+            setTouchEnabled(false)
+            description.isEnabled = false
+            legend.isEnabled = false
+            setVisibleXRange(0f, 1f)
+            setVisibleYRange(0f, 1f, YAxis.AxisDependency.LEFT)
+            moveViewTo(0f, 0f, YAxis.AxisDependency.LEFT)
+            invalidate()
+        }
+    }
+}

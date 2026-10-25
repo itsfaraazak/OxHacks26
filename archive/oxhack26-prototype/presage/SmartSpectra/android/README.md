@@ -1,0 +1,83 @@
+---
+title: Android Quick Start
+description: Measure pulse and breathing from the Android camera or caller-supplied frames with the SmartSpectra Android SDK. Kotlin, minSdk 28; install, authenticate, and run.
+sidebarTitle: Quick Start
+---
+
+# SmartSpectra Android Quickstart
+
+This repo contains two build guides that produce similar user end states:
+
+- [Option 1: API Key](docs/option-1-api-key.md)
+- [Option 2: OAuth](docs/option-2-oauth.md)
+
+The only difference in builds is that the API key build gets up and running very fast, but hard-codes your API key. The OAuth build is more suitable for production deployments because it avoids hard-coding your API key.
+
+> **Start with the full runnable sample:** [Option 1: API Key](docs/option-1-api-key.md)
+> walks through a complete camera app. Use [Option 2: OAuth](docs/option-2-oauth.md)
+> when your app needs OAuth instead.
+
+## Scope
+
+These quickstarts intentionally request only:
+
+- `SmartSpectraConfig.breathingMetrics`
+- `SmartSpectraConfig.cardioMetrics`
+- `MetricType.EXPRESSIONS`
+
+Please see the detailed documents for additional features.
+
+## Important Implementation Rules
+
+Start by creating a new Android app project named `Cool Vitals` with package name `com.example.coolvitals`.
+
+The Quick Start is intended so that the developer can replace `app/src/main/java/com/example/coolvitals/MainActivity.kt` as a full file.
+
+- Use `SmartSpectraSdk.shared`.
+- Use `PreviewView` with `sdk.config.previewSurfaceProvider` for native CameraX preview.
+- Disable bitmap preview frames with `sdk.config.imageOutputEnabled = false`.
+- Buffer trace samples locally before drawing charts.
+- Keep camera permission in the activity flow with `ActivityResultContracts.RequestPermission()`.
+
+## Choose Your Guide
+
+Use [Option 1: API Key](docs/option-1-api-key.md) for the fastest manual setup.
+
+Use [Option 2: OAuth](docs/option-2-oauth.md) if you need OAuth.
+
+Either way, an AI assistant connected to the [SmartSpectra MCP Server](../docs/mcp-server.md) can do the account side for you — fetch your API key, or register your package name and signing certificate fingerprint and download `presage_services.xml`.
+
+If your app already captures video, use the
+[custom-input guide](docs/headless-mode.md#caller-owned-camera-and-custom-input)
+to submit buffers, Bitmaps, or CameraX images while retaining camera ownership.
+
+## LLM Insights
+
+See [LLM Insights](docs/llm-insights.md) for natural-language analysis of the measured vitals.
+
+## Logging
+
+SDK log verbosity defaults to warnings and errors only. To change it, set
+`logLevel` on the config you pass to `initialize`:
+
+```kotlin
+val config = SmartSpectraConfig().apply {
+    logLevel = SmartSpectraLogLevel.INFO
+}
+SmartSpectraSdk.initialize(context, config)
+```
+
+Levels are cumulative — `DEBUG`, `INFO`, `WARNING` (default), `ERROR`, `NONE`.
+The setting covers both the SDK's Kotlin-side logging and the native engine.
+`DEBUG` cannot restore debug-only statements compiled out of the release
+engine binary.
+
+## Supported Platforms
+
+| Platform                | Notes                             |
+| ----------------------- | --------------------------------- |
+| Google Pixel 3 / 3 XL   | Tested on Pixel 9, 10             |
+| Samsung Galaxy S21      | Tested on A16, S21, Galaxy Flip 6 |
+| Motorola Edge 30 Ultra  |                                   |
+
+For support: contact <support@presagetech.com> or [submit a GitHub issue](https://github.com/Presage-Security/SmartSpectra/issues).

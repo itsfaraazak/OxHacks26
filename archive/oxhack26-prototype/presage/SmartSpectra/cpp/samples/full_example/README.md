@@ -1,0 +1,79 @@
+# Full Example
+
+This example demonstrates continuous physiological monitoring with real-time visualization using the SmartSpectra C++ SDK.
+
+## Overview
+
+The full example shows how to:
+
+- Set up continuous monitoring from a camera or video file
+- Display real-time vitals data overlaid on the video stream
+- Plot physiological data in real-time using OpenCV
+
+## Key Features
+
+- **Continuous monitoring** - Real-time measurement rather than single spot readings
+- **Real-time visualization** - Live HUD display with vitals data
+- **Data plotting** - Real-time graphs of heart rate and breathing patterns
+
+## Usage
+
+```bash
+# Build the example (from smartspectra/cpp directory)
+cmake --build build --target full_example
+
+# Run with camera input
+./build/samples/full_example/full_example --camera_device_index=0 --api_key=YOUR_API_KEY_HERE
+
+# Discover cameras without an API key or opening a GUI (Linux, macOS, Windows)
+./build/samples/full_example/full_example --list_cameras
+
+# Select an exact ID from the listing
+./build/samples/full_example/full_example --camera_id="ID" --api_key=YOUR_API_KEY_HERE
+
+# Run with video file input
+./build/samples/full_example/full_example --input_video_path=/path/to/video.mp4 --api_key=YOUR_API_KEY_HERE
+
+# Record the processed video while measuring (Motion-JPEG AVI + per-frame timestamp
+# sidecar written into the given directory), then replay it via --input_video_path
+./build/samples/full_example/full_example --camera_device_index=0 --api_key=YOUR_API_KEY_HERE --video_output_directory=/path/to/recordings
+```
+
+Adding `eda` to `--requested_metrics` (e.g. `--requested_metrics=pulse_rate,arterial_pressure_trace,chest_trace,abdomen_trace,breathing_rate,eda`) surfaces the streaming EDA Proxy trace as a fourth HUD row beneath the breathing rows.
+
+`--list_cameras` prints each camera's ID, name, facing, and lens type, then exits.
+Treat IDs as opaque and quote them when passing them on the command line.
+`--camera_id` overrides `--camera_device_index` and cannot be combined with
+`--input_video_path`. A missing selected camera fails instead of selecting another
+device. Without an ID, legacy index selection is preserved. Resolution, frame rate,
+and transform flags apply to either camera selection method.
+
+## macOS Signing
+
+If you run `full_example` on macOS, sign it through an app-style wrapper so the process can use the protected keychain path. The required steps are documented in the [samples README](../README.md#macos-signing).
+
+## Configuration
+
+Before running, make sure to:
+
+1. Set your API key via the `--api_key` parameter
+2. Configure camera or video file input
+3. Optionally adjust visualization and processing parameters
+
+## Keyboard Controls
+
+During execution:
+
+- `q` or `ESC`: Exit the application
+
+## Code Structure
+
+The example demonstrates:
+
+1. **Settings Configuration** - Sets up continuous measurement and requested metrics
+2. **SmartSpectra Setup** - Configures `SmartSpectraConfig` and the input source
+3. **Callback Registration** - Sets up handlers for metrics, validation, and video output
+4. **Real-time Processing** - Continuous measurement with live feedback
+5. **Visualization** - HUD overlay with physiological data and trends
+
+This example is ideal for applications requiring continuous monitoring with immediate visual feedback, such as fitness applications, health monitoring systems, or research tools.

@@ -1,0 +1,580 @@
+---
+title: C++ Migration Guide
+description: "Migrate the SmartSpectra C++ SDK to C++20, typed camera selection, specific usage errors, and other release-by-release API changes."
+sidebarTitle: Migration Guide
+---
+
+# SmartSpectra C++ SDK Migration Guide
+
+> Applies to SmartSpectra C++ SDK v3.x.
+
+## C++ SDK v3.4.0 Migration
+
+### Build with C++20
+
+SmartSpectra C++ SDK v3.4.0 requires a C++20 compiler. Update projects that
+still compile as C++17 before upgrading:
+
+```cmake
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+```
+
+Use GCC, Clang, or Visual Studio 2022 with C++20 support enabled. This change
+applies to application code that includes SmartSpectra headers as well as code
+that links the prebuilt SDK.
+
+### Explicit camera selection
+
+Camera discovery and typed selection are available on Linux, Windows, macOS,
+and in the native C++ API on iOS. Existing callers keep index-based behavior: omitting source
+configuration or calling `UseCamera()` still selects index zero. The deprecated
+`UseCamera(int device_index = 0)` overload remains available, including its
+original camera inventory and index ordering. Opt in to the new selection
+policy with `UseCamera(CameraSelection::Default())`.
+To require a specific camera, use its discovered ID:
+
+```cpp
+using namespace presage::smartspectra;
+
+std::vector<CameraInfo> cameras;
+if (auto error = SmartSpectra::AvailableCameras(cameras); !error.ok()) {
+    // Handle discovery failure.
+    return;
+}
+if (cameras.empty()) {
+    // No cameras are currently visible to the application.
+    return;
+}
+
+// Present cameras to the user and keep the selected entry's ID.
+const auto& selected = cameras.front();
+if (auto error = spectra.UseCamera(CameraSelection::ById(selected.id))
+                       .SetResolution(1280, 720)
+                       .SetFps(30)
+                       .Build(); !error.ok()) {
+    // Handle configuration failure.
+    return;
+}
+if (auto error = spectra.Start(); !error.ok()) {
+    // Handle authentication, camera access, or other startup failures.
+}
+```
+
+`AvailableCameras()` is static: no SDK instance, API key, permission prompt, or
+capture session is needed. It replaces the output vector. An empty successful
+result means no cameras are visible; visibility can depend on permissions.
+Each `CameraInfo` contains an opaque `id`, an optional display `name`, and a
+`facing` of `kFront`, `kBack`, or `kUnknown`. Treat IDs as platform-local values
+and rediscover before reusing saved choices. Discovery does not reserve a camera
+or guarantee it can be opened later.
+
+| Selection | Behavior |
+| --- | --- |
+| `CameraSelection::Default()` | iOS prefers front and otherwise uses the first discovered camera. macOS uses discovery order: built-in, physical external, then virtual or unknown devices, with IDs breaking ties. Windows uses the first enumerated camera. Linux uses the first compatible V4L2 capture node in numeric device order. Other native backends retain their existing default camera behavior. |
+| `CameraSelection::Front()` | Requires a camera reported as front-facing. |
+| `CameraSelection::Back()` | Requires a camera reported as back-facing. |
+| `CameraSelection::ById(id)` | Requires that exact discovered ID. |
+
+When multiple cameras match a facing, the first in discovery order wins. A
+webcam can report `kUnknown`; use its ID to select it. The Apple inventory
+includes wide-angle built-in cameras and external camera endpoints. On iOS it
+also includes physical ultra-wide and telephoto cameras, when present, with
+wide-angle cameras ordered before the other built-in lenses and external cameras.
+Virtual dual/triple-camera combinations are not listed separately: select an
+individual lens by ID to avoid automatic switching between constituent cameras.
+The additional iOS lenses are available only through typed selection; they do
+not change the indices used by existing applications.
+
+Each `CameraInfo` includes `lens_type` (`CameraLensType::kWideAngle`,
+`kUltraWide`, `kTelephoto`, or `kUnknown`). Classification is best effort;
+unknown metadata and cameras combining multiple lenses report `kUnknown`.
+Use this field for picker labels and continue selecting by the camera's `id`.
+
+On Windows, discovery includes the cameras visible to the application, with
+optional display names and opaque IDs. Facing and lens type currently report
+`kUnknown`; select a camera by ID. `Front()` and `Back()` therefore fail at
+`Start()` with `kInputUnavailable`. Existing integer selections retain their
+original inventory and ordering.
+
+On Linux, discovery lists compatible single-planar V4L2 streaming capture nodes
+in numeric `/dev/videoN` order and uses the device's card name when available.
+IDs prefer `/dev/v4l/by-id` and `/dev/v4l/by-path` aliases, falling back to the
+device node; treat every form as opaque. Facing is populated from the standard
+V4L2 camera-orientation control when a driver provides it. External cameras and
+cameras without orientation metadata report `kUnknown`, and lens type currently
+reports `kUnknown`. Existing integer selections continue to map directly to
+`/dev/videoN`, so they are unaffected by discovery filtering or ordering.
+
+`Build()` validates the request without opening a camera. An empty ID returns
+`kConfigurationFailed` and preserves the previous input source. Explicit
+front/back/ID requests and discovery currently return `kConfigurationFailed`
+on other native backends. Those backends still support the integer camera API
+and `Default()` where native capture is available.
+
+`Start()` resolves the request against the current inventory. A missing or
+inaccessible camera returns `kInputUnavailable`; explicit requests never fall
+back to another ID or facing. Only `Default()` permits a facing fallback.
+Camera permission and application configuration requirements still apply.
+
+Choose a source while uninitialized or idle. To change cameras, complete
+`Stop()`, build the new camera source, and call `Start()` again. A request is
+preserved across stop/start/reset until another source is successfully built.
+Swift, Android, and Node.js also provide typed camera discovery and selection;
+follow the migration guide for each platform when updating a cross-platform app.
+
+The `smart_spectra_example` sample accepts `--list_cameras` to print camera IDs,
+names, and facing without an API key. Use `--camera_id="ID"` with your API key
+to select one. This flag takes precedence over `--camera_device_index` and
+cannot be combined with `--input_video_path`.
+
+### Usage failures now report specific errors
+
+Usage entitlement checking continues throughout a measurement as before. What
+changes in v3.4.0 is how a terminal usage failure is reported. Handle the
+specific errors in `SetOnError()`:
+
+- `kAuthenticationFailed` for rejected credentials
+- `kCreditExhausted` for an explicit quota denial
+- `kNetworkError` when entitlement cannot be refreshed in time
+
+The SDK also includes short measurements and the final partial interval before
+`Stop()` in usage reporting. No public API changes are required.
+
+## C++ SDK v3.3.0 Migration
+
+### Default log verbosity is now warnings and errors only
+
+The SDK previously emitted informational log chatter by default. From v3.3.0
+the default level is `SmartSpectraLogLevel::kWarning`. If you relied on the
+informational output, restore it via `SmartSpectraConfig::log_level`:
+
+```cpp
+SmartSpectraConfig config;
+config.log_level = presage::smartspectra::SmartSpectraLogLevel::kInfo;
+```
+
+Setting the `GLOG_minloglevel` environment variable still works and is never
+overridden by the SDK default.
+
+## C++ SDK v3.1.0-rc.4 Migration
+
+### `MetricsToJsonSoA` return type
+
+`presage::smartspectra::MetricsToJsonSoA` previously returned `nlohmann::json` and required customers to have `nlohmann/json.hpp` reachable on their compile path through the bundled SDK headers. It now returns `absl::StatusOr<std::string>` — the SDK no longer ships `nlohmann/json.hpp` and the public header (`smartspectra/messages/metrics.h`) no longer references it.
+
+```cpp
+// Before (v3.1.0-rc.3 and earlier):
+#include <nlohmann/json.hpp>
+nlohmann::json j = presage::smartspectra::MetricsToJsonSoA(metrics);
+double pr = j["series"]["cardio.pulse_rate"]["values"][0];
+
+// After (v3.1.0-rc.4+):
+#include <absl/status/statusor.h>
+#include <string>
+auto json = presage::smartspectra::MetricsToJsonSoA(metrics);
+if (!json.ok()) {
+  // handle absl::InvalidArgumentError (serialization failure)
+}
+// Write the serialized JSON to a file / network / log, or parse it back
+// into a JSON object using the JSON library of your choice (nlohmann/json,
+// rapidjson, simdjson, etc.) — the SDK no longer opinionates this.
+std::string serialized = *json;
+```
+
+The on-the-wire JSON layout (`{"series": {"<name>": {"timestamps": [...], "values": [...]}, ...}}`) is unchanged.
+
+## C++ SDK v3.0 Migration
+
+Migrating from SDK v1.x to v3.0 (C++).
+
+### Operation Mode Removal
+
+The SDK now operates in continuous mode by default. The `OperationMode` enum and related container type aliases have been removed. Configure the SDK with `SmartSpectraConfig` and use `SmartSpectra` directly.
+
+```cpp
+// Before:
+Settings<OperationMode::Continuous, IntegrationMode::Rest> settings;
+CpuContinuousRestForegroundContainer container(settings);
+
+// After:
+presage::smartspectra::SmartSpectraConfig config;
+config.api_key = "...";
+config.requested_metrics =
+    presage::smartspectra::SmartSpectraConfig::BreathingMetrics();
+
+presage::smartspectra::SmartSpectra spectra(config);
+```
+
+For timed sessions that previously depended on spot-style container behavior:
+
+```cpp
+config.enable_accumulated_output = true;
+spectra.UseFile("video.mp4").SetMaxDuration(30000).Build();
+// For live camera sessions, keep timing in application code and call Stop().
+```
+
+### Container Removal
+
+Use `SmartSpectra` directly instead of `Container` abstractions.
+
+```cpp
+// Before:
+#include <smartspectra/container/foreground_container.hpp>
+container::CpuRestForegroundContainer container(settings);
+container.Initialize();
+container.Run();
+```
+
+```cpp
+// After:
+#include <smartspectra/smartspectra.h>
+#include <smartspectra/smartspectra_config.h>
+
+presage::smartspectra::SmartSpectraConfig config;
+config.api_key = "...";
+
+presage::smartspectra::SmartSpectra spectra(config);
+const auto source_error = spectra.UseCamera().Build();
+if (!source_error.ok()) {
+    LOG(ERROR) << source_error.FullMessage();
+    return;
+}
+
+if (const auto err = spectra.Start(); !err.ok()) {
+    LOG(ERROR) << err.FullMessage();
+    return;
+}
+```
+
+### Public Headers
+
+Use the SmartSpectra public headers and protobuf metric headers directly:
+
+```cpp
+#include <smartspectra/smartspectra.h>
+#include <smartspectra/smartspectra_config.h>
+#include <smartspectra/messages/metrics.h>
+```
+
+### Input Source Builders Must Be Materialized
+
+The current API separates source configuration from source creation. After
+calling `UseCamera()`, `UseFile()`, or `UseCustomInput()`, call `Build()` and
+check the returned `SmartSpectraError` before `Start()`.
+
+```cpp
+// Before:
+spectra.UseCamera();
+spectra.Start();
+```
+
+```cpp
+// After:
+const auto source_error =
+    spectra.UseCamera().SetResolution(1280, 720).SetFps(30).Build();
+if (!source_error.ok()) {
+    LOG(ERROR) << source_error.FullMessage();
+    return;
+}
+
+if (const auto err = spectra.Start(); !err.ok()) {
+    LOG(ERROR) << err.FullMessage();
+    return;
+}
+```
+
+If you omit source configuration entirely, `Start()` uses
+`CameraSelection::Default()` (see the camera selection notes above).
+
+### Metric Defaults Are Narrower
+
+If an older integration assumed pulse-related output was part of the default
+metric set, update it explicitly. `BreathingMetrics()` is the named breathing
+bundle. `DefaultSupportedMetrics()` is the fallback used when
+`requested_metrics` is empty and currently delegates to `BreathingMetrics()`.
+
+```cpp
+presage::smartspectra::SmartSpectraConfig config;
+config.api_key = "...";
+config.requested_metrics =
+    presage::smartspectra::SmartSpectraConfig::BreathingMetrics();
+config.AddMetrics(
+    presage::smartspectra::SmartSpectraConfig::CardioMetrics());
+```
+
+### CMake Target Change
+
+Older container-based integrations linked `SmartSpectra::Container`. The
+installed v3 package exposes the public C++ SDK as `SmartSpectra::SDK`.
+
+```cmake
+# Before:
+target_link_libraries(my_app SmartSpectra::Container)
+
+# After:
+target_link_libraries(my_app SmartSpectra::SDK)
+```
+
+### Single Package SDK
+
+Older source-build integrations may have linked the Edge target directly as
+`Physiology::Edge`. That target is not a customer-facing installed package
+target in v3. Use the installed SmartSpectra package and link `SmartSpectra::SDK`.
+
+```bash
+sudo apt install libsmartspectra-dev
+```
+
+```cmake
+# Before:
+target_link_libraries(my_app Physiology::Edge)
+
+# After:
+target_link_libraries(my_app SmartSpectra::SDK)
+```
+
+### Protobuf Namespace: `presage::physiology` → `presage::smartspectra`
+
+The generated protobuf message namespace has been renamed from
+`presage::physiology` to `presage::smartspectra`. Older container classes
+already lived under `presage::smartspectra::container`; current public SDK
+classes and generated `*.pb.h` messages now share the top-level
+`presage::smartspectra` namespace.
+
+```cpp
+// Before:
+presage::physiology::MetricsBuffer metrics_buffer;
+presage::physiology::Metrics edge_metrics;
+
+// After:
+presage::smartspectra::SmartSpectraConfig config;
+presage::smartspectra::Metrics metrics;
+```
+
+The shared protobuf message schemas (`insights`, `metric_types`, `metrics`,
+`point_types`, `status`) also move from `package presage.physiology` to
+`package presage.smartspectra`. The on-the-wire byte format of serialized
+messages is unchanged (field numbers are untouched).
+
+#### `Any.type_url` and JSON `@type` non-interop
+
+`google.protobuf.Any.type_url` strings, JSON `@type` fields, and
+`DescriptorPool` lookups all key off the fully-qualified message name, which
+moves from `presage.physiology.<Message>` to `presage.smartspectra.<Message>`.
+A new SDK build cannot decode `Any`-wrapped or JSON-keyed payloads written by
+an older build of the SDK, and vice versa. Cross-version interop between old
+and new builds is not supported as part of this migration.
+
+If your application persists `Any`-wrapped blobs or stores JSON with `@type`
+fields keyed by the old type name, regenerate those artifacts with the new
+SDK before deploying. Re-emitting the data is the only supported path.
+
+#### Related identity surfaces
+
+This migration covers the C++ public surface and the proto `package`
+declarations. Related platform surfaces are documented separately:
+
+- **Android Java/Kotlin (`com.presage.physiology.proto.*` → `com.presagetech.smartspectra.proto.*`)**:
+  consumers building against the new Android SDK release should update their
+  generated-proto imports as part of the Android upgrade. See the Android
+  Migration Guide for the platform-specific import examples.
+- **Python proto wheel (`SmartSpectra-Messages`)**: the internal Python wheel
+  now publishes the generated protobuf modules under `smartspectra.messages.*`
+  to match the SDK package identity. See the "Python Proto Wheel" section below
+  for the import examples.
+
+The Android JNI-bound classes `com.presage.physiology.Messages` and
+`com.presage.physiology.emd.security.AndroidKeyStoreHelper` are pinned by
+native `.so` JNI symbol names and are not renamed by this migration or by
+the Java protobuf migration; their cleanup is tracked as a further follow-up.
+
+### Container and Physiology Module Headers → SmartSpectra SDK Headers
+
+The old public surface combined `smartspectra/container/...` headers with
+`physiology/modules/...` generated protobuf headers. Current consumers include
+the SmartSpectra SDK headers and protobuf metric headers directly.
+
+```cpp
+// Before:
+#include <smartspectra/container/foreground_container.hpp>
+#include <smartspectra/container/settings.hpp>
+#include <physiology/modules/messages/metrics.h>
+
+// After:
+#include <smartspectra/smartspectra.h>
+#include <smartspectra/smartspectra_config.h>
+#include <smartspectra/messages/metrics.h>
+```
+
+The SDK now exports a single `-I` root (`<prefix>/include`); the previous
+secondary `-I<prefix>/include/physiology` propagation is gone.
+
+### Public CMake Surface Uses `SMARTSPECTRA_*`
+
+Installed CMake package variables now use the one-word `SMARTSPECTRA_*`
+prefix. There are no compatibility aliases for the old names, so update
+consumer `CMakeLists.txt` files and CI flags in one pass.
+
+| Old | New |
+| --- | --- |
+| `SMART_SPECTRA_VERSION` | `SMARTSPECTRA_VERSION` |
+| `SMART_SPECTRA_VERSION_MAJOR` | `SMARTSPECTRA_VERSION_MAJOR` |
+| `SMART_SPECTRA_VERSION_MINOR` | `SMARTSPECTRA_VERSION_MINOR` |
+| `SMART_SPECTRA_VERSION_PATCH` | `SMARTSPECTRA_VERSION_PATCH` |
+| `SMART_SPECTRA_VERSION_PLAIN` | `SMARTSPECTRA_VERSION_PLAIN` |
+| `SMART_SPECTRA_INSTALL_INCLUDE_DIR` | `SMARTSPECTRA_INSTALL_INCLUDE_DIR` |
+| `SMART_SPECTRA_INSTALL_LIB_DIR` | `SMARTSPECTRA_INSTALL_LIB_DIR` |
+| `SMART_SPECTRA_INSTALL_CMAKE_DIR` | `SMARTSPECTRA_INSTALL_CMAKE_DIR` |
+| `PHYSIOLOGY_EDGE_ARCHITECTURE` | `SMARTSPECTRA_ARCHITECTURE` |
+| `PHYSIOLOGY_EDGE_MODEL_DIRECTORY` | `SMARTSPECTRA_MODEL_DIRECTORY` |
+| `PHYSIOLOGY_EDGE_GRAPH_DIRECTORY` | `SMARTSPECTRA_GRAPH_DIRECTORY` |
+| `PHYSIOLOGY_EDGE_MLX_ENABLED` | `SMARTSPECTRA_MLX_ENABLED` |
+| `PHYSIOLOGY_EDGE_MLX_METALLIB_PATH` | `SMARTSPECTRA_MLX_METALLIB_PATH` |
+| `PHYSIOLOGY_EDGE_AUTO_FINALIZE` | `SMARTSPECTRA_AUTO_FINALIZE` |
+
+The user-facing CMake option for disabling remote model delivery was also
+renamed:
+
+```diff
+- cmake -DDISABLE_REMOTE_MODEL_DELIVERY=ON ...
++ cmake -DSMARTSPECTRA_DISABLE_REMOTE_MODEL_DELIVERY=ON ...
+```
+
+### MLX CMake Helper Rename
+
+The installed MLX helper module was renamed from `PhysiologyEdge_mlx.cmake` to
+`SmartSpectra_mlx.cmake`. `SmartSpectraConfig.cmake` includes this helper
+automatically on Apple/MLX builds, so only consumers that include the helper
+directly need to change anything.
+
+```diff
+- include("${CMAKE_CURRENT_LIST_DIR}/PhysiologyEdge_mlx.cmake")
++ include("${CMAKE_CURRENT_LIST_DIR}/SmartSpectra_mlx.cmake")
+```
+
+In this release the helper's public CMake API was also renamed from the
+`PhysiologyEdge_` / `_PhysiologyEdge_` / `PHYSIOLOGY_EDGE_` /
+`physiology_edge_` prefixes to `SmartSpectra_` / `_SmartSpectra_` /
+`SMARTSPECTRA_` / `_SMARTSPECTRA_` / `_smartspectra_`. This is a **hard
+rename** — no compatibility aliases or deprecation shims are provided, so
+consumers calling the old names will see "Unknown CMake command" errors at
+configure time.
+
+| Old name                                              | New name                                            |
+| ----------------------------------------------------- | --------------------------------------------------- |
+| `PhysiologyEdge_finalize_target`                      | `SmartSpectra_finalize_target`                      |
+| `PhysiologyEdge_copy_mlx_metallib_to_target`          | `SmartSpectra_copy_mlx_metallib_to_target`          |
+| target property `_PHYSIOLOGY_EDGE_FINALIZED`          | target property `_SMARTSPECTRA_FINALIZED`           |
+| global property `_PHYSIOLOGY_EDGE_TARGETS_TO_FINALIZE`| global property `_SMARTSPECTRA_TARGETS_TO_FINALIZE` |
+| custom target `_physiology_edge_deploy_metallib`      | custom target `_smartspectra_deploy_metallib`       |
+| `message(STATUS "PhysiologyEdge: …")`                 | `message(STATUS "SmartSpectra: …")`                 |
+
+The installed SmartSpectra package exposes only the `SmartSpectra::*`
+targets (`SmartSpectra::SDK` for application consumers). `Physiology::Edge`
+is an internal source-build target and is not part of the installed
+package — see "Single Package SDK" above.
+
+To apply all renames mechanically across a downstream consumer's CMake
+sources, run from the repo root:
+
+```bash
+git ls-files -z '*.cmake' '*.cmake.in' 'CMakeLists.txt' '**/CMakeLists.txt' \
+  | xargs -0 sed -i \
+      -e 's/PhysiologyEdge_finalize_target/SmartSpectra_finalize_target/g' \
+      -e 's/PhysiologyEdge_copy_mlx_metallib_to_target/SmartSpectra_copy_mlx_metallib_to_target/g' \
+      -e 's/_PHYSIOLOGY_EDGE_FINALIZED/_SMARTSPECTRA_FINALIZED/g' \
+      -e 's/_PHYSIOLOGY_EDGE_TARGETS_TO_FINALIZE/_SMARTSPECTRA_TARGETS_TO_FINALIZE/g' \
+      -e 's/_physiology_edge_deploy_metallib/_smartspectra_deploy_metallib/g' \
+      -e 's/"PhysiologyEdge: /"SmartSpectra: /g'
+```
+
+(On macOS, replace `sed -i` with `sed -i ''`.)
+
+### `messages/` is now first-class
+
+Protobuf metric headers used to live under `physiology/modules/messages/`.
+The `modules/` nesting level has been dropped — `messages/` now sits directly
+under the new include base.
+
+```cpp
+// Before:
+#include <physiology/modules/messages/metrics.h>
+#include <physiology/modules/messages/metric_types.pb.h>
+#include <physiology/modules/messages/status.h>
+
+// After:
+#include <smartspectra/messages/metrics.h>
+#include <smartspectra/messages/metric_types.pb.h>
+#include <smartspectra/messages/status.h>
+```
+
+### Pruned Public Headers
+
+Several headers — and the raw proto sources — that were previously installed
+publicly are no longer shipped:
+
+- `<physiology/modules/configuration.h>` — generated build-feature `#define`s,
+  never a stable public API. No replacement.
+- `<physiology/modules/filesystem_absl.h>` — internal filesystem helper. No
+  replacement.
+- `<smartspectra/messages/protobuf_enum.h>` — internal enum-reflection helper
+  (`AllEnumValues`); reachable only via full Protobuf reflection and unused by
+  the public API. No replacement.
+- `<smartspectra/video_source/camera_controls.h>` — the `CameraControls`
+  interface is not reachable through the public SDK (camera setup goes through
+  `UseCamera`, which owns the source internally). No replacement.
+- The raw `messages/*.proto` sources — build against the generated
+  `messages/*.pb.h` (still shipped) instead.
+
+If your code transitively included any of these, vendor your own equivalent or
+open an issue describing the use case.
+
+### Version Header
+
+The SDK now exposes a single version header at `<smartspectra/version.hpp>`.
+The previous `<physiology/version.h>` and the transitional `<smartspectra/edge_version.h>`
+are retired; both have been collapsed into `<smartspectra/version.hpp>`.
+
+```cpp
+// Before:
+#include <physiology/version.h>
+
+// After:
+#include <smartspectra/version.hpp>
+```
+
+The version macros are now namespaced as `SMART_SPECTRA_VERSION_MAJOR`,
+`SMART_SPECTRA_VERSION_MINOR`, `SMART_SPECTRA_VERSION_PATCH`,
+`SMART_SPECTRA_VERSION_STRING`, and `SMART_SPECTRA_VERSION_PLAIN`. The
+constexpr accessors under `presage::smartspectra::GetVersionMajor()` /
+`GetVersionMinor()` / `GetVersionPatch()` / `GetVersionString()` /
+`GetVersionPlain()` are unchanged in name and signature.
+
+### Container Headers → `smartspectra*` SDK Headers
+
+Public header filenames in `<prefix>/include/smartspectra/` now expose the
+direct SDK surface instead of the old container surface:
+
+```cpp
+// Before:                                      // After:
+<smartspectra/container/foreground_container.hpp>  <smartspectra/smartspectra.h>
+<smartspectra/container/settings.hpp>              <smartspectra/smartspectra_config.h>
+<physiology/modules/messages/metrics.h>            <smartspectra/messages/metrics.h>
+<physiology/modules/messages/status.h>             <smartspectra/messages/status.h>
+```
+
+### Python Proto Wheel
+
+The internal Python protobuf wheel now publishes the generated modules under
+the SmartSpectra package identity:
+
+```python
+# Before:
+import physiology.modules.messages.metrics_pb2 as metrics
+from physiology.modules.messages import status_pb2
+
+# After:
+import smartspectra.messages.metrics_pb2 as metrics
+from smartspectra.messages import status_pb2
+```

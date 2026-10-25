@@ -1,0 +1,6 @@
+# Camera agent (runs next to a webcam). Same stack as the prototype detector.
+# mediapipe already depends on opencv-contrib-python; do not add opencv-python,
+# which would install a second, conflicting cv2 module.
+mediapipe>=0.10.20
+opencv-contrib-python>=4.10
+numpy>=1.26
