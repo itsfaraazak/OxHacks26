@@ -29,6 +29,7 @@ from typing import Any
 import cv2
 
 from .focus import DetectorConfig, FaceLandmarkSource, FocusReading, FocusTracker
+from .preview import PreviewServer
 
 DIR_PATH = os.path.dirname(os.path.abspath(__file__))
 # Written by presage/test_presage.mjs, exactly as in the prototype.
@@ -163,12 +164,22 @@ def main() -> None:
     parser.add_argument("--width", type=int)
     parser.add_argument("--height", type=int)
     parser.add_argument("--fps", type=int, help="request a capture rate; detection runs on every frame it can")
-    parser.add_argument("--headless", action="store_true", help="no preview window")
+    parser.add_argument("--headless", action="store_true", help="disable all previews")
+    parser.add_argument("--window", action="store_true", help="also open the legacy OpenCV window")
+    parser.add_argument("--preview-port", type=int, default=5002, help="local website camera preview port")
     parser.add_argument("--no-flip", action="store_true", help="do not mirror the image like a selfie view")
     args = parser.parse_args()
 
+    preview = None
+    if not args.headless:
+        try:
+            preview = PreviewServer(args.preview_port)
+        except OSError as err:
+            raise SystemExit(f"Cannot start preview on port {args.preview_port}: {err}. Stop the other agent or use --preview-port.") from err
     cap = open_camera(args.camera, args.width, args.height, args.fps)
     if not cap.isOpened():
+        if preview:
+            preview.close()
         raise SystemExit(f"Could not open camera {args.camera!r}")
     # A video file plays at its recorded speed and loops, so it behaves like a live camera.
     is_file = os.path.isfile(args.camera)
@@ -179,7 +190,9 @@ def main() -> None:
     tracker = FocusTracker(config)
     faces = FaceLandmarkSource()
     reporter = Reporter(args.server, os.environ.get("FIDO_DEVICE_TOKEN"))
-    print(f"Watching camera {args.camera!r} as {args.source!r}; reporting to {args.server}. Press q to quit.")
+    print(f"Watching camera {args.camera!r} as {args.source!r}; reporting to {args.server}. Ctrl+C to quit.")
+    if preview:
+        print(f"Website preview ready at http://localhost:{preview.port}/preview.mjpg (this computer only).")
 
     last_time = time.time()
     last_report = 0.0
@@ -241,15 +254,21 @@ def main() -> None:
 
             if not args.headless:
                 draw_overlay(frame, reading, config, vitals, fps, bool(reporter.connected))
-                cv2.imshow(f"Fido focus detector ({args.source})", frame)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
+                if preview:
+                    preview.publish(frame)
+                if args.window:
+                    cv2.imshow(f"Fido focus detector ({args.source})", frame)
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                        break
     except KeyboardInterrupt:
         pass
     finally:
         cap.release()
         faces.close()
-        cv2.destroyAllWindows()
+        if preview:
+            preview.close()
+        if args.window:
+            cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":

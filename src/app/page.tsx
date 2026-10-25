@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, ArrowUpRight, BatteryFull, Camera, Check, CircleHelp, Clock3, Dog, Flame, Focus, Hand, HeartPulse, LayoutGrid, Leaf, Pause, Play, Settings2, ShieldCheck, Smartphone, Sparkles, Square, Target, Wifi, WifiOff, X } from "lucide-react";
 import { api, apiBase, ApiError, subscribe, type Connection, type FidoState, type HistoryEntry, type Phase, type SessionAction, type Settings } from "@/lib/api";
+import CameraPreview from "./camera-preview";
 
 type Tab = "Focus" | "Activity" | "Devices";
 /** The latest snapshot plus the local time it arrived, for countdown interpolation. */
@@ -213,6 +214,7 @@ export default function Home() {
               <div className="session-footnote"><ShieldCheck size={14}/>{footnote}</div>
             </section>
           </div>
+          <CameraPreview/>
           <section className="stats-strip" aria-label="Focus statistics"><div><span className="stat-icon"><Clock3 size={19}/></span><div><span className="stat-label">FOCUS TIME</span><strong>{focusedMinutes}<small> min</small></strong></div><span className="stat-note">All your small wins</span></div><div><span className="stat-icon"><Check size={20}/></span><div><span className="stat-label">SESSIONS FINISHED</span><strong>{completedCount}<small> sessions</small></strong></div><span className="stat-note">Made time for you</span></div><div><span className="stat-icon"><Flame size={19}/></span><div><span className="stat-label">THIS SESSION</span><strong>{session?.distractions ?? 0}<small> distractions</small></strong></div><span className="stat-note">Progress, not perfection</span></div></section>
           <section className="how-section"><div className="section-heading"><h2>A friend. Not another notification.</h2><button onClick={() => setModal("help")}>How it works <ArrowUpRight size={15}/></button></div><div className="steps">{[{ icon: Smartphone, title: "Phone down. Head clear.", text: "Give your phone a home on Fido. Give your attention a little space." }, { icon: Focus, title: "A gentle nudge back.", text: "Lose your flow? Your companion helps bring you back to your one thing." }, { icon: Dog, title: "A little tough love.", text: "Keep getting distracted? Fido barks. Then your phone goes for a walk." }].map((step, i) => <div className="step" key={step.title}><div className="step-top"><step.icon size={21}/><span>0{i + 1}</span></div><h3>{step.title}</h3><p>{step.text}</p></div>)}</div></section>
         </>}

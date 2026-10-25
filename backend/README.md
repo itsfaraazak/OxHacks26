@@ -46,7 +46,7 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt -r requirements-detector.txt
 
 .venv/bin/python -m fido                 # backend on http://0.0.0.0:5000
-.venv/bin/python -m detector.agent       # laptop webcam -> backend (press q to quit)
+.venv/bin/python -m detector.agent       # laptop webcam -> backend (Ctrl+C to quit)
 .venv/bin/python -m pytest               # tests
 ```
 
@@ -58,6 +58,44 @@ detector on the webcam or a looping video:
 sh scripts/demo.sh          # webcam 0
 sh scripts/demo.sh clip.mp4 # recorded video instead of a webcam
 ```
+
+### Camera inside the website
+
+On the Focus page, click **Show camera** beneath the companion and session
+cards. The detector now provides its actual annotated feed inside the website
+instead of opening a separate desktop window. Detection still runs in Python;
+there is no second browser camera capture.
+
+Keep all three processes running in separate terminals:
+
+```sh
+# From backend/ (5001 avoids macOS AirPlay's port 5000)
+.venv/bin/python -m fido --port 5001
+
+# From the repo root
+NEXT_PUBLIC_FIDO_API=http://localhost:5001 sh run.sh dev
+
+# From backend/
+.venv/bin/python -m detector.agent --server http://localhost:5001
+```
+
+Open http://localhost:3000. Python still needs macOS camera permission.
+Hiding the preview does not stop detection; Ctrl+C in the detector terminal
+stops capture.
+
+The preview binds only to `127.0.0.1:5002`. Frames are never uploaded to Flask
+or a cloud host. A phone cannot view the laptop's feed through its own
+localhost. Use the local HTTP website: an HTTPS site may block this local HTTP
+stream. Remote preview sharing is not implemented.
+
+Options:
+- `--window`: also open the old OpenCV desktop window.
+- `--headless`: disable both browser and desktop previews.
+- `--preview-port 5003`: use another preview port; restart the frontend with
+  `NEXT_PUBLIC_FIDO_PREVIEW=http://localhost:5003/preview.mjpg` to match.
+
+Preview delivery is capped at 10 fps using a latest-frame buffer, without
+changing the detector's processing rate. No recording is saved.
 
 More detector options:
 

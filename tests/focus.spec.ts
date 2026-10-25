@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
-const API = "http://localhost:5000";
+const API = `http://localhost:${process.env.FIDO_TEST_BACKEND_PORT ?? "5000"}`;
 const DEFAULTS = { bark_after_seconds: 6, escape_after_seconds: 8, require_dock: true, motion_enabled: true };
 
 /** Start every test from a clean backend: no session, fast escalation, no dock needed. */
@@ -111,4 +111,33 @@ test("offline banner when the backend is unreachable", async ({ page }) => {
   await expect(page.getByRole("alert").filter({ hasText: "Can’t reach Fido’s backend" })).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: "OFFLINE" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Let’s focus" })).toBeDisabled();
+});
+
+test("camera preview is opt-in, shows frames, and can be hidden", async ({ page }) => {
+  let requests = 0;
+  await page.route("http://localhost:5002/preview.mjpg**", route => {
+    requests++;
+    return route.fulfill({
+      contentType: "image/png",
+      body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=", "base64"),
+    });
+  });
+  await page.goto("/");
+  const preview = page.getByRole("region", { name: "Detector camera preview" });
+  expect(requests).toBe(0);
+  await preview.getByRole("button", { name: "Show camera" }).click();
+  const image = preview.getByRole("img", { name: "Live detector camera with focus status overlay" });
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1);
+  await preview.getByRole("button", { name: "Hide camera" }).click();
+  await expect(image).toHaveCount(0);
+});
+
+test("unavailable camera preview offers retry without breaking session controls", async ({ page }) => {
+  await page.route("http://localhost:5002/preview.mjpg**", route => route.abort());
+  await page.goto("/");
+  await page.getByRole("button", { name: "Show camera" }).click();
+  await expect(page.getByText("Camera preview unavailable.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "retry preview" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Let’s focus" })).toBeEnabled();
 });
